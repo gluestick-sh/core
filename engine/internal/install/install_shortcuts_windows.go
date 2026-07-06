@@ -123,9 +123,9 @@ func createStartMenuShortcut(folder, installDir, target string, sc manifest.Shor
 	linkDir := folder
 	if subDir != "." {
 		linkDir = filepath.Join(folder, subDir)
-		if err := os.MkdirAll(linkDir, 0755); err != nil {
-			return fmt.Errorf("create shortcut dir: %w", err)
-		}
+	}
+	if err := os.MkdirAll(linkDir, 0755); err != nil {
+		return fmt.Errorf("create shortcut dir: %w", err)
 	}
 	lnkPath := filepath.Join(linkDir, filepath.Base(sc.Label)+".lnk")
 
