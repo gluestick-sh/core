@@ -252,6 +252,7 @@ function strip_ext([string]$path) {
 function friendly_path([string]$p) { return $p }
 function new_issue_msg($app,$bucket,$type) { return '' }
 ` + scoopShortcutAndShimHelpers(glueRoot) + `
+` + scoopInstalledHelpers() + `
 ` + scoopExpandMsiArchiveHelper()
 	if dark != "" {
 		preamble += scoopExpandDarkArchiveHelper(dark)
@@ -323,6 +324,55 @@ function rm_shim($name, $shimdir, $app) {
   if (Test-Path -LiteralPath $exe) { Remove-Item -LiteralPath $exe -Force }
 }
 `, glueRoot)
+}
+
+// scoopInstalledHelpers defines Scoop app presence helpers used by uninstaller.script
+// hooks (e.g. python: $global = installed $app $true).
+func scoopInstalledHelpers() string {
+	return `
+function appsdir($global) {
+  if ($global) { return $null }
+  if (-not $glue_root) { return $null }
+  return Join-Path $glue_root 'apps'
+}
+function appdir($app, $global) {
+  $root = appsdir $global
+  if (-not $root) { return $null }
+  $app = ($app -split '/|\\')[-1]
+  return Join-Path $root $app
+}
+function Select-CurrentVersion {
+  param(
+    [Parameter(Mandatory=$true)][string]$AppName,
+    [switch]$Global
+  )
+  $pkgRoot = appdir $AppName $Global
+  if (-not $pkgRoot -or !(Test-Path -LiteralPath $pkgRoot)) { return $null }
+  $current = Join-Path $pkgRoot 'current'
+  if (Test-Path -LiteralPath $current) {
+    try {
+      $item = Get-Item -LiteralPath $current -Force
+      if ($item.LinkType -eq 'Junction') {
+        $target = $item.Target
+        if ($target -is [array]) { $target = $target[0] }
+        if ($target) { return [System.IO.Path]::GetFileName($target.TrimEnd('\')) }
+      }
+    } catch { }
+  }
+  $versions = Get-ChildItem -LiteralPath $pkgRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne 'current' } |
+    Sort-Object Name -Descending
+  if ($versions) { return $versions[0].Name }
+  return $null
+}
+function installed($app, $global) {
+  if ($null -eq $global) {
+    return (installed $app $false) -or (installed $app $true)
+  }
+  $app = ($app -split '/|\\')[-1]
+  return $null -ne (Select-CurrentVersion -AppName $app -Global:([bool]$global))
+}
+`
 }
 
 func scoopExpandMsiArchiveHelper() string {

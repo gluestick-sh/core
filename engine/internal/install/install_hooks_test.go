@@ -365,6 +365,48 @@ func TestBuildPreUninstallHookScriptSetsCmd(t *testing.T) {
 	}
 }
 
+func TestBuildInstallHookScript_pythonUninstallerUsesInstalledHelper(t *testing.T) {
+	hooks := []string{
+		`$global = installed $app $true`,
+		`if ($global) {`,
+		`    $pathext = (Get-EnvVar -Name PATHEXT -Global) -replace ';.PYW?', ''`,
+		`    Set-EnvVar -Name PATHEXT -Value $pathext -Global`,
+		`} else {`,
+		`    $pathext = (Get-EnvVar -Name PATHEXT) -replace ';.PYW?', ''`,
+		`    Set-EnvVar -Name PATHEXT -Value $pathext`,
+		`}`,
+	}
+	script := buildInstallHookScript(HookScriptEnv{
+		InstallDir:   `C:\Users\test\.glue\apps\python\3.13.2`,
+		DownloadName: `python-installer.exe`,
+		Version:      "3.13.2",
+		App:          "python",
+		Cmd:          "uninstall",
+		GlueRoot:     `C:\Users\test\.glue`,
+		Hooks:        hooks,
+	})
+	for _, want := range []string{
+		"function installed(",
+		"function Select-CurrentVersion",
+		"function appsdir",
+		"$global = installed $app $true",
+		"$cmd = 'uninstall'",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("missing %q in hook script", want)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", "$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:GLUE_TEST_SCRIPT, [ref]$null, [ref]$errors); if ($errors) { $errors | ForEach-Object { $_.ToString() }; exit 1 }")
+	cmd.Env = append(os.Environ(), "GLUE_TEST_SCRIPT="+script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("PowerShell parse failed: %v\n%s", err, out)
+	}
+}
+
 func TestRunUninstallerHooksIgnoresRegImportExitCode(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("requires Windows PowerShell")
