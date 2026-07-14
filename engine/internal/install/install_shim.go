@@ -37,7 +37,16 @@ func ensureExtractor7zWithProf(e *runtime.Engine, ctx context.Context, prof *ins
 		}
 		return fn()
 	}
-	if SetSevenZipFromLocal(e) {
+	// Installing the 7zip package itself may use the minimal 7za bootstrap.
+	// Every other package that extracts archives (including NSIS #/dl.7z) needs
+	// the full 7-Zip build with 7z.dll codecs.
+	needFull := pkgName != "7zip"
+	if needFull {
+		if SetFullSevenZipFromLocal(e) {
+			cleanupSevenZipSeeds(e)
+			return nil
+		}
+	} else if SetSevenZipFromLocal(e) {
 		cleanupSevenZipSeeds(e)
 		return nil
 	}
@@ -46,10 +55,10 @@ func ensureExtractor7zWithProf(e *runtime.Engine, ctx context.Context, prof *ins
 			path string
 			bErr error
 		)
-		if pkgName == "7zip" {
-			path, bErr = e.Bootstrap.Ensure7z(ctx)
-		} else {
+		if needFull {
 			path, bErr = e.Bootstrap.Ensure7zip(ctx)
+		} else {
+			path, bErr = e.Bootstrap.Ensure7z(ctx)
 		}
 		if bErr != nil {
 			return bErr
