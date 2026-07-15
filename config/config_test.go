@@ -134,6 +134,26 @@ func TestWriteReadConfigBucketCheckInterval(t *testing.T) {
 	}
 }
 
+func TestWriteReadConfigBucketSyncMode(t *testing.T) {
+	root := t.TempDir()
+	if err := WriteConfigBucketSyncMode(root, BucketSyncModeAuto); err != nil {
+		t.Fatalf("WriteConfigBucketSyncMode: %v", err)
+	}
+	got, ok, err := ReadConfigBucketSyncMode(root)
+	if err != nil {
+		t.Fatalf("ReadConfigBucketSyncMode: %v", err)
+	}
+	if !ok || got != BucketSyncModeAuto {
+		t.Fatalf("got %q ok=%v", got, ok)
+	}
+	if NormalizeBucketSyncMode("AUTO") != BucketSyncModeAuto {
+		t.Fatalf("normalize auto")
+	}
+	if NormalizeBucketSyncMode("unknown") != BucketSyncModeManual {
+		t.Fatalf("normalize manual default")
+	}
+}
+
 func TestWriteReadConfigBucketDescriptions(t *testing.T) {
 	root := t.TempDir()
 	if err := SetConfigBucketDescription(root, "lemon", "Community bucket with extra apps"); err != nil {

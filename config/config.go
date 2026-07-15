@@ -16,6 +16,7 @@ type configFile struct {
 	GitHubProxy                string                              `json:"github_proxy,omitempty"`
 	DownloadWorkers            *int                                `json:"download_workers,omitempty"`
 	BucketCheckIntervalMinutes *int                                `json:"bucket_check_interval_minutes,omitempty"`
+	BucketSyncMode             string                              `json:"bucket_sync_mode,omitempty"`
 	BucketDescriptions         map[string]string                   `json:"bucket_descriptions,omitempty"`
 	ManifestDownloadOverrides  map[string]ManifestDownloadOverride `json:"manifest_download_overrides,omitempty"`
 	ManifestJSONOverrides      map[string]ManifestJSONOverride     `json:"manifest_json_overrides,omitempty"`
@@ -38,6 +39,22 @@ const DefaultBucketCheckIntervalMinutes = 15
 
 // AllowedBucketCheckIntervals lists supported bucket check intervals (minutes).
 var AllowedBucketCheckIntervals = []int{5, 15, 30}
+
+const (
+	BucketSyncModeManual    = "manual"
+	BucketSyncModeAuto      = "auto"
+	DefaultBucketSyncMode   = BucketSyncModeManual
+)
+
+// NormalizeBucketSyncMode clamps to a supported bucket sync mode.
+func NormalizeBucketSyncMode(mode string) string {
+	switch strings.TrimSpace(strings.ToLower(mode)) {
+	case BucketSyncModeAuto:
+		return BucketSyncModeAuto
+	default:
+		return BucketSyncModeManual
+	}
+}
 
 // NormalizeBucketCheckInterval clamps to a supported interval.
 func NormalizeBucketCheckInterval(minutes int) int {
@@ -203,6 +220,28 @@ func WriteConfigBucketCheckInterval(rootDir string, minutes int) error {
 	}
 	normalized := NormalizeBucketCheckInterval(minutes)
 	cfg.BucketCheckIntervalMinutes = &normalized
+	return writeConfigFile(rootDir, cfg)
+}
+
+// ReadConfigBucketSyncMode returns bucket_sync_mode from config.json when set.
+func ReadConfigBucketSyncMode(rootDir string) (string, bool, error) {
+	cfg, err := readConfigFile(rootDir)
+	if err != nil {
+		return "", false, err
+	}
+	if strings.TrimSpace(cfg.BucketSyncMode) == "" {
+		return "", false, nil
+	}
+	return NormalizeBucketSyncMode(cfg.BucketSyncMode), true, nil
+}
+
+// WriteConfigBucketSyncMode updates bucket_sync_mode in config.json.
+func WriteConfigBucketSyncMode(rootDir, mode string) error {
+	cfg, err := readConfigFile(rootDir)
+	if err != nil {
+		return err
+	}
+	cfg.BucketSyncMode = NormalizeBucketSyncMode(mode)
 	return writeConfigFile(rootDir, cfg)
 }
 
