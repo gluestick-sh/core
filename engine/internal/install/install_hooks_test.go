@@ -1,6 +1,7 @@
 package install
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -308,8 +309,55 @@ func TestBuildInstallHookScript_includesCopyTree(t *testing.T) {
 	if !strings.Contains(script, `Copy-Tree "$persist_dir\data" "$dir\User Data"`) {
 		t.Fatalf("expected patched Copy-Tree call: %q", script)
 	}
+	if strings.Contains(script, "Start-Process -FilePath 'robocopy.exe'") {
+		t.Fatalf("Copy-Tree must not use Start-Process -ArgumentList (breaks paths with spaces)")
+	}
+	if !strings.Contains(script, "& robocopy.exe $from $to") {
+		t.Fatalf("expected call-operator robocopy in Copy-Tree: %q", script)
+	}
 	if !strings.Contains(script, "$ErrorActionPreference = 'Stop'") {
 		t.Fatalf("expected strict error handling")
+	}
+}
+
+// Regression: Brave portable post_install copies LocalAppData\...\User Data into
+// $dir\User Data. Start-Process -ArgumentList used to split those paths on spaces
+// (robocopy exit 16 / invalid parameter #3).
+func TestCopyTreePathsWithSpaces(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("requires Windows robocopy")
+	}
+	root := t.TempDir()
+	src := filepath.Join(root, "Brave-Browser", "User Data")
+	dst := filepath.Join(root, "apps", "brave", "1.0", "User Data")
+	if err := os.MkdirAll(filepath.Join(src, "Default"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(src, "Default", "Preferences")
+	if err := os.WriteFile(marker, []byte(`{"ok":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	hook := fmt.Sprintf(
+		`Copy-Tree %s %s`,
+		psSingleQuoted(src),
+		psSingleQuoted(dst),
+	)
+	if err := runPreInstallHooks(HookScriptEnv{
+		InstallDir: filepath.Dir(dst),
+		Hooks:      []string{hook},
+	}); err != nil {
+		t.Fatalf("Copy-Tree with spaces: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "Default", "Preferences"))
+	if err != nil {
+		t.Fatalf("copied file missing: %v", err)
+	}
+	if string(got) != `{"ok":true}` {
+		t.Fatalf("content = %q", got)
 	}
 }
 

@@ -532,6 +532,10 @@ function Invoke-ExternalCommand {
 }
 
 func scoopCopyTreeAndMovedirHelper() string {
+	// Use the call operator (&) rather than Start-Process -ArgumentList.
+	// Start-Process joins ArgumentList with spaces and does not quote entries
+	// that contain spaces, so paths like "...\User Data" are split into
+	// multiple robocopy parameters (source=...\User, dest=Data, ...).
 	return `
 function Copy-Tree([string]$from, [string]$to) {
   if (!(Test-Path -LiteralPath $from)) { return }
@@ -539,8 +543,8 @@ function Copy-Tree([string]$from, [string]$to) {
     Remove-Item -LiteralPath $to -Force
   }
   ensure $to | Out-Null
-  $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList @($from, $to, '/E', '/COPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS') -Wait -PassThru -NoNewWindow
-  if ($proc.ExitCode -ge 8) { throw "Copy-Tree failed (robocopy exit $($proc.ExitCode))" }
+  & robocopy.exe $from $to /E /COPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Copy-Tree failed (robocopy exit $LASTEXITCODE)" }
 }
 function movedir([string]$from, [string]$to) {
   if (!(Test-Path -LiteralPath $from)) { return }
