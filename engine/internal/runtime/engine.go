@@ -15,6 +15,7 @@ import (
 	"github.com/gluestick-sh/core/bucket"
 	"github.com/gluestick-sh/core/cache"
 	"github.com/gluestick-sh/core/config"
+	"github.com/gluestick-sh/core/device"
 	"github.com/gluestick-sh/core/downloader"
 	etypes "github.com/gluestick-sh/core/engine/types"
 	"github.com/gluestick-sh/core/extractor"
@@ -42,6 +43,10 @@ type Engine struct {
 // NewEngine creates a new package engine instance.
 func NewEngine(cfg *etypes.EngineConfig) (*Engine, error) {
 	verbose.Set(cfg.Verbose)
+
+	if _, err := device.Ensure(cfg.RootDir); err != nil {
+		return nil, fmt.Errorf("failed to initialize device identity: %w", err)
+	}
 
 	st, err := store.NewStore(filepath.Join(cfg.RootDir, "store"))
 	if err != nil {
