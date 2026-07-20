@@ -38,7 +38,7 @@ type CatalogPackagePage struct {
 	PageSize int               `json:"pageSize"`
 }
 
-// CatalogResolveRequest resolves template package names against the search index.
+// CatalogResolveRequest resolves recipe / catalog package names against the search index.
 type CatalogResolveRequest struct {
 	Name   string `json:"name"`
 	Bucket string `json:"bucket"`
@@ -108,7 +108,7 @@ func ListCatalogPackages(e *runtime.Engine, q CatalogPackageQuery) (*CatalogPack
 	}, nil
 }
 
-// ResolveCatalogPackages resolves package names for template cards.
+// ResolveCatalogPackages resolves package names for recipe cards.
 func ResolveCatalogPackages(e *runtime.Engine, requests []CatalogResolveRequest) []*etypes.Package {
 	if e.SearchIdx == nil || len(requests) == 0 {
 		return nil

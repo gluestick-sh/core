@@ -197,7 +197,7 @@ func (e *Engine) ListCatalogPackages(q CatalogPackageQuery) (*CatalogPackagePage
 	return catalog.ListCatalogPackages(e.Engine, q)
 }
 
-// ResolveCatalogPackages resolves package names for template cards.
+// ResolveCatalogPackages resolves package names for recipe cards.
 func (e *Engine) ResolveCatalogPackages(requests []CatalogResolveRequest) []*Package {
 	return catalog.ResolveCatalogPackages(e.Engine, requests)
 }

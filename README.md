@@ -76,6 +76,11 @@ Data directory layout (default `~/.glue`):
 | `store/` | CAS blobs |
 | `shims/` | PATH shims |
 | `config.json` | User settings |
+| `device.json` | Stable device identity for this data root (CLI/Desktop sync) |
+
+Environment snapshots (`gluestick.environment-snapshot`) are portable JSON files
+produced by `Engine.ExportCoreSnapshot` / `glue snapshot export` — they are not
+stored under the data root by default.
 
 ## Public API
 
