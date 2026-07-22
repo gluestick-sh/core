@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -132,36 +133,46 @@ func (e *Engine) ApplyCoreSnapshot(ctx context.Context, target *snapshot.Snapsho
 		}
 	}
 
+	var applyErrs []error
 	for _, pkg := range plan.PackagesToInstall {
 		ref := snapshot.InstallRef(pkg)
 		result, err := e.Install(ctx, &InstallRequest{Request: Request{Name: ref}}, reporter)
 		if err != nil {
-			return plan, fmt.Errorf("install %s: %w", ref, err)
+			applyErrs = append(applyErrs, fmt.Errorf("install %s: %w", ref, err))
+			continue
 		}
 		if result != nil && result.Status == StatusFailed {
 			if result.Error != nil {
-				return plan, fmt.Errorf("install %s: %w", ref, result.Error)
+				applyErrs = append(applyErrs, fmt.Errorf("install %s: %w", ref, result.Error))
+			} else {
+				applyErrs = append(applyErrs, fmt.Errorf("install %s failed: %s", ref, result.Message))
 			}
-			return plan, fmt.Errorf("install %s failed: %s", ref, result.Message)
+			continue
 		}
 		if pkg.VersionLocked {
 			if err := e.SetPackageVersionLock(pkg.Name, true); err != nil {
-				return plan, fmt.Errorf("lock %s: %w", pkg.Name, err)
+				applyErrs = append(applyErrs, fmt.Errorf("lock %s: %w", pkg.Name, err))
+				continue
 			}
 		}
 	}
 
 	for _, pkg := range plan.PackagesToActivate {
 		if err := e.SwitchPackageVersion(pkg.Name, pkg.Version); err != nil {
-			return plan, fmt.Errorf("activate %s@%s: %w", pkg.Name, pkg.Version, err)
+			applyErrs = append(applyErrs, fmt.Errorf("activate %s@%s: %w", pkg.Name, pkg.Version, err))
+			continue
 		}
 		if pkg.VersionLocked {
 			if err := e.SetPackageVersionLock(pkg.Name, true); err != nil {
-				return plan, fmt.Errorf("lock %s: %w", pkg.Name, err)
+				applyErrs = append(applyErrs, fmt.Errorf("lock %s: %w", pkg.Name, err))
+				continue
 			}
 		}
 	}
 
+	if len(applyErrs) > 0 {
+		return plan, errors.Join(applyErrs...)
+	}
 	return plan, nil
 }
 
