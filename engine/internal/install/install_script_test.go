@@ -155,6 +155,34 @@ func TestBuildInstallerScriptExpand7zipMatchesScoop(t *testing.T) {
 	}
 }
 
+func TestBuildInstallerScriptIncludesEnsureHelper(t *testing.T) {
+	// Scoop manifests (e.g. opera/opera-gx) call ensure from installer.script.
+	script := buildInstallerScript(
+		`C:\apps\opera\1.0`,
+		`opera.exe`,
+		`opera`,
+		`extras`,
+		`C:\buckets`,
+		``,
+		testSevenZip,
+		``,
+		``,
+		`64bit`,
+		false,
+		[]string{`$version, 'autoupdate' | ForEach-Object { ensure "$dir\$_" | Out-Null }`},
+	)
+	for _, want := range []string{
+		"function ensure([string]$path)",
+		"function warn([string]$msg)",
+		"function strip_ext([string]$path)",
+		`ensure "$dir\$_"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("installer.script helpers missing %q", want)
+		}
+	}
+}
+
 func TestBuildInstallerScriptIncludesInnoHelpers(t *testing.T) {
 	script := buildInstallerScript(
 		`C:\apps\gimp\3.2.4`,

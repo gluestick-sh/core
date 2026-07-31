@@ -106,9 +106,24 @@ function Get-HelperPath {
   return $null
 }
 function fname([string]$path) { return [System.IO.Path]::GetFileName($path) }
+function strip_ext([string]$path) {
+  $base = [System.IO.Path]::GetFileName($path)
+  return [System.IO.Path]::GetFileNameWithoutExtension($base)
+}
+function ensure([string]$path) {
+  if (!(Test-Path $path)) {
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+  }
+  return (Resolve-Path $path).Path
+}
+function get_config([string]$name, $default) {
+  if ($name -eq 'USE_LESSMSI') { return $false }
+  return $default
+}
 ` + scoopCopyTreeAndMovedirHelper() + `
 function error([string]$msg) { throw $msg }
 function abort([string]$msg) { throw $msg }
+function warn([string]$msg) { Write-Host $msg }
 `, psSingleQuoted(innounp)) + scoopExpandMsiArchiveHelper()
 	if dark != "" {
 		preamble += scoopExpandDarkArchiveHelper(dark)
