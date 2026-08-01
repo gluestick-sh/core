@@ -31,11 +31,15 @@ func TestPersistEntries_ultravnc(t *testing.T) {
 func TestPersistEntry_LooksLikeFile(t *testing.T) {
 	file := PersistEntry{Install: "nativeLang.xml", Data: "nativeLang.xml"}
 	dir := PersistEntry{Install: "plugins", Data: "plugins"}
+	profile := PersistEntry{Install: `TorBrowser\Data\Browser\profile.default`, Data: `TorBrowser\Data\Browser\profile.default`}
 	if !file.LooksLikeFile() {
 		t.Fatal("xml should look like file")
 	}
 	if dir.LooksLikeFile() {
 		t.Fatal("plugins should look like directory")
+	}
+	if profile.LooksLikeFile() {
+		t.Fatal("profile.default should look like directory")
 	}
 }
 

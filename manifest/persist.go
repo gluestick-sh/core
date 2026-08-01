@@ -28,9 +28,23 @@ func (e PersistEntry) DataName() string {
 }
 
 // LooksLikeFile reports Scoop-style file persist paths (e.g. config.xml).
-// Directory persist entries (plugins, User Data) have no dotted base name.
+// Paths whose basename contains a dot are not always files: Tor Browser persists
+// profile.default as a directory. Prefer known file extensions; otherwise treat
+// as a directory so missing paths are created on install.
 func (e PersistEntry) LooksLikeFile() bool {
-	return strings.Contains(filepath.Base(e.InstallName()), ".")
+	base := filepath.Base(e.InstallName())
+	if !strings.Contains(base, ".") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(base))
+	switch ext {
+	case ".ini", ".xml", ".json", ".txt", ".conf", ".cfg", ".yml", ".yaml", ".toml",
+		".js", ".css", ".html", ".htm", ".log", ".dat", ".db", ".sqlite", ".sqlite3",
+		".bat", ".cmd", ".ps1", ".reg", ".properties", ".config", ".vnc":
+		return true
+	default:
+		return false
+	}
 }
 
 // PersistEntries returns manifest persist paths.
