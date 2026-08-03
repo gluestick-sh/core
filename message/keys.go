@@ -24,6 +24,8 @@ const (
 	ProgressPackageInstallComplete = "progress.install.package_complete"
 
 	GCPrepareStore              = "progress.gc.prepare_store"
+	GCClearingPartials          = "progress.gc.clearing_partials"
+	GCClearingSidecars          = "progress.gc.clearing_sidecars"
 	GCReadingIndexRefs          = "progress.gc.reading_index_refs"
 	GCIndexRefCount             = "progress.gc.index_ref_count"
 	GCScanAppsStart             = "progress.gc.scan_apps_start"

@@ -218,3 +218,36 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+func TestPruneManifestDownloadOverrides(t *testing.T) {
+	root := t.TempDir()
+	if err := SetConfigManifestDownloadOverride(root, "extras/keep", []string{"https://example.com/keep.exe"}, nil, "hash-keep"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetConfigManifestDownloadOverride(root, "extras/drop", []string{"https://example.com/drop.exe"}, nil, "hash-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetConfigManifestDownloadOverride(root, "extras/legacy", []string{"https://example.com/legacy.exe"}, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := PruneManifestDownloadOverrides(root, func(pkgRef string, item ManifestDownloadOverride) bool {
+		return pkgRef == "extras/keep" && item.BaseHash == "hash-keep"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 2 {
+		t.Fatalf("removed = %#v, want 2 entries", removed)
+	}
+
+	got, err := ReadConfigManifestDownloadOverrides(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("remaining = %#v", got)
+	}
+	if _, ok := got["extras/keep"]; !ok {
+		t.Fatalf("keep entry missing: %#v", got)
+	}
+}

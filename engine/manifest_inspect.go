@@ -25,6 +25,7 @@ type InstallManifestInfo struct {
 	DownloadURLs           []string `json:"downloadUrls"`
 	BucketDownloadURLs     []string `json:"bucketDownloadUrls"`
 	URLOverrideActive      bool     `json:"urlOverrideActive"`
+	URLOverrideStale       bool     `json:"urlOverrideStale"`
 	JSONOverrideActive     bool     `json:"jsonOverrideActive"`
 	JSONOverrideStale      bool     `json:"jsonOverrideStale"`
 	Hashes                 []string `json:"hashes"`
@@ -84,6 +85,7 @@ func buildManifestInspectResolved(manifestPath string,
 		DownloadURLs:           effectiveM.GetURLsForInstall(defaultArch),
 		BucketDownloadURLs:     bucketURLs,
 		URLOverrideActive:      state.URLActive && !state.JSONActive,
+		URLOverrideStale:       state.URLStale && !state.JSONActive,
 		JSONOverrideActive:     state.JSONActive,
 		JSONOverrideStale:      state.JSONStale,
 		Hashes:                 effectiveM.GetHashesForInstall(defaultArch),

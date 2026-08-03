@@ -519,18 +519,32 @@ func (d *Downloader) ClearPartial(task Task) {
 	removePartial(partPath, metaPath)
 }
 
-// ClearAllPartials removes every in-progress download under the store.
-func (d *Downloader) ClearAllPartials() error {
+// ClearAllPartials removes every in-progress download under the store
+// (resumable .part/.meta.json files and abandoned zip spool temps).
+// Returns how many files were deleted and total bytes freed.
+func (d *Downloader) ClearAllPartials() (removed int, freedBytes int64, err error) {
 	dir := filepath.Join(d.store.Path(), ".partial")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return 0, 0, nil
 		}
-		return err
+		return 0, 0, err
 	}
 	for _, entry := range entries {
-		_ = os.Remove(filepath.Join(dir, entry.Name()))
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		info, infoErr := entry.Info()
+		size := int64(0)
+		if infoErr == nil {
+			size = info.Size()
+		}
+		if rmErr := os.Remove(path); rmErr == nil {
+			removed++
+			freedBytes += size
+		}
 	}
-	return nil
+	return removed, freedBytes, nil
 }

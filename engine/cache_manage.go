@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/gluestick-sh/core/cache"
+	"github.com/gluestick-sh/core/message"
 )
 
 // CachePackageInfo describes one package entry in the cache index.
@@ -83,7 +84,7 @@ func (e *Engine) PurgeCachePackageWithProgress(pkgName string, report CacheGCRep
 	return &CacheSpaceResult{RemovedBlobs: removed, FreedBytes: freed}, nil
 }
 
-// RunCacheGC removes store blobs not referenced by the cache index or installed apps.
+// RunCacheGC removes unreferenced store blobs and abandoned download partials.
 func (e *Engine) RunCacheGC() (*CacheSpaceResult, error) {
 	return e.RunCacheGCWithProgress(nil)
 }
@@ -92,13 +93,52 @@ func (e *Engine) RunCacheGC() (*CacheSpaceResult, error) {
 type CacheGCReporter = cache.GCProgressReporter
 
 // RunCacheGCWithProgress runs GC and reports phased progress when reporter is set.
+// It also deletes abandoned resumable downloads under store/.partial and stale
+// sidecar indexes under store/.zip-index and store/.manifest-hash.
 func (e *Engine) RunCacheGCWithProgress(report CacheGCReporter) (*CacheSpaceResult, error) {
+	extraRemoved, extraFreed := 0, int64(0)
+	if e.Downloader != nil {
+		if report != nil {
+			report(cache.GCProgressEvent{
+				Phase:      cache.GCPhasePrepare,
+				MessageKey: message.GCClearingPartials,
+				Percent:    0,
+			})
+		}
+		removed, freed, err := e.Downloader.ClearAllPartials()
+		if err != nil {
+			return nil, err
+		}
+		extraRemoved += removed
+		extraFreed += freed
+	}
+
 	appsDir := filepath.Join(e.Config.RootDir, "apps")
 	removed, freed, err := cache.PurgeOrphanBlobsWithProgress(e.Cache, e.Store, appsDir, report)
 	if err != nil {
 		return nil, err
 	}
-	return &CacheSpaceResult{RemovedBlobs: removed, FreedBytes: freed}, nil
+
+	if e.Downloader != nil {
+		if report != nil {
+			report(cache.GCProgressEvent{
+				Phase:      cache.GCPhaseDelete,
+				MessageKey: message.GCClearingSidecars,
+				Percent:    99,
+			})
+		}
+		sideRemoved, sideFreed, sideErr := e.Downloader.ClearStaleSidecarIndexes()
+		if sideErr != nil {
+			return nil, sideErr
+		}
+		extraRemoved += sideRemoved
+		extraFreed += sideFreed
+	}
+
+	return &CacheSpaceResult{
+		RemovedBlobs: removed + extraRemoved,
+		FreedBytes:   freed + extraFreed,
+	}, nil
 }
 
 // ClearCacheIndex removes package rows from the SQLite cache index (store blobs are kept).

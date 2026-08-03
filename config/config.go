@@ -292,9 +292,12 @@ func SetConfigBucketDescription(rootDir, name, description string) error {
 }
 
 // ManifestDownloadOverride stores user-edited download URLs for a package ref.
+// BaseHash is the bucket manifest file hash at save time; when it differs, the
+// override is ignored so versioned URLs do not stick after bucket updates.
 type ManifestDownloadOverride struct {
-	URLs   []string `json:"urls,omitempty"`
-	Hashes []string `json:"hashes,omitempty"`
+	URLs     []string `json:"urls,omitempty"`
+	Hashes   []string `json:"hashes,omitempty"`
+	BaseHash string   `json:"baseHash,omitempty"`
 }
 
 // NormalizeManifestOverrideKey lowercases a package ref for config lookup.
@@ -323,7 +326,9 @@ func ReadConfigManifestDownloadOverrides(rootDir string) (map[string]ManifestDow
 }
 
 // SetConfigManifestDownloadOverride stores or clears a download URL override for pkgRef.
-func SetConfigManifestDownloadOverride(rootDir, pkgRef string, urls, hashes []string) error {
+// baseHash should be the bucket manifest file hash when saving; empty baseHash is allowed
+// only when clearing (empty urls).
+func SetConfigManifestDownloadOverride(rootDir, pkgRef string, urls, hashes []string, baseHash string) error {
 	key := NormalizeManifestOverrideKey(pkgRef)
 	if key == "" {
 		return fmt.Errorf("package ref is required")
@@ -357,10 +362,50 @@ func SetConfigManifestDownloadOverride(rootDir, pkgRef string, urls, hashes []st
 		}
 	}
 	cfg.ManifestDownloadOverrides[key] = ManifestDownloadOverride{
-		URLs:   trimmed,
-		Hashes: hashTrimmed,
+		URLs:     trimmed,
+		Hashes:   hashTrimmed,
+		BaseHash: strings.TrimSpace(baseHash),
 	}
 	return writeConfigFile(rootDir, cfg)
+}
+
+// PruneManifestDownloadOverrides removes saved download overrides for which keep returns false.
+// Returns the package refs that were removed.
+func PruneManifestDownloadOverrides(rootDir string, keep func(pkgRef string, item ManifestDownloadOverride) bool) (removed []string, err error) {
+	if keep == nil {
+		return nil, fmt.Errorf("keep callback is required")
+	}
+	cfg, err := readConfigFile(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.ManifestDownloadOverrides) == 0 {
+		return nil, nil
+	}
+	next := make(map[string]ManifestDownloadOverride, len(cfg.ManifestDownloadOverrides))
+	for ref, item := range cfg.ManifestDownloadOverrides {
+		key := NormalizeManifestOverrideKey(ref)
+		if key == "" || len(item.URLs) == 0 {
+			continue
+		}
+		if keep(key, item) {
+			next[key] = item
+			continue
+		}
+		removed = append(removed, key)
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	if len(next) == 0 {
+		cfg.ManifestDownloadOverrides = nil
+	} else {
+		cfg.ManifestDownloadOverrides = next
+	}
+	if err := writeConfigFile(rootDir, cfg); err != nil {
+		return nil, err
+	}
+	return removed, nil
 }
 
 // ManifestJSONOverride stores a user-edited manifest JSON tied to the bucket file hash at save time.

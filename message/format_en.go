@@ -87,6 +87,10 @@ func FormatEN(key string, args map[string]any) string {
 		return "Package installed"
 	case GCPrepareStore:
 		return "Preparing cache cleanup..."
+	case GCClearingPartials:
+		return "Clearing incomplete downloads..."
+	case GCClearingSidecars:
+		return "Clearing stale download indexes..."
 	case GCReadingIndexRefs:
 		return "Reading file references from cache index..."
 	case GCIndexRefCount:
@@ -137,7 +141,7 @@ func FormatEN(key string, args map[string]any) string {
 	case GCDeletingOrphansBatch:
 		return fmt.Sprintf("Deleting orphan blobs (%d/%d)", intArg("current"), intArg("total"))
 	case GCCompleteFreed:
-		return fmt.Sprintf("Removed %d orphan blobs, freed %s", intArg("removed"), str("freed"))
+		return fmt.Sprintf("Removed %d junk items, freed %s", intArg("removed"), str("freed"))
 	case GCCompleteNothing:
 		return "No space to reclaim"
 	case PurgePrepare:

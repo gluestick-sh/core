@@ -21,6 +21,7 @@ type manifestOverrideState struct {
 	jsonActive bool
 	jsonStale  bool
 	urlActive  bool
+	urlStale   bool
 }
 
 // ManifestOverrideState describes active manifest overrides for inspect/plan UIs.
@@ -29,6 +30,7 @@ type ManifestOverrideState struct {
 	JSONActive bool
 	JSONStale  bool
 	URLActive  bool
+	URLStale   bool
 }
 
 func toManifestOverrideState(s manifestOverrideState) ManifestOverrideState {
@@ -37,6 +39,7 @@ func toManifestOverrideState(s manifestOverrideState) ManifestOverrideState {
 		JSONActive: s.jsonActive,
 		JSONStale:  s.jsonStale,
 		URLActive:  s.urlActive,
+		URLStale:   s.urlStale,
 	}
 }
 
@@ -85,18 +88,22 @@ func resolveManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, bu
 	}
 
 	if state.jsonActive {
-		_, _, state.urlActive = manifestDownloadOverride(e, pkgRef)
+		item, hasURL := loadManifestDownloadOverride(e, pkgRef)
+		state.urlActive = hasURL && !downloadOverrideStale(item, manifestPath)
+		state.urlStale = hasURL && downloadOverrideStale(item, manifestPath)
 		return state, nil
 	}
 
-	overridden, err := applyManifestDownloadOverrides(e, pkgRef, state.effectiveM, installArch, req)
+	overridden, urlActive, urlStale, err := applyManifestDownloadOverrides(e, pkgRef, manifestPath, state.effectiveM, installArch, req)
 	if err != nil {
 		return state, err
 	}
 	state.effectiveM = overridden
-	_, _, state.urlActive = manifestDownloadOverride(e, pkgRef)
+	state.urlActive = urlActive
+	state.urlStale = urlStale
 	if req != nil && len(req.DownloadURLOverrides) > 0 {
 		state.urlActive = true
+		state.urlStale = false
 	}
 	return state, nil
 }
@@ -110,48 +117,117 @@ func ApplyManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, m *m
 	return state.effectiveM, nil
 }
 
-func manifestDownloadOverride(e *runtime.Engine, pkgRef string) (urls, hashes []string, ok bool) {
+func loadManifestDownloadOverride(e *runtime.Engine, pkgRef string) (config.ManifestDownloadOverride, bool) {
 	if e == nil || e.Config == nil || e.Config.RootDir == "" {
-		return nil, nil, false
+		return config.ManifestDownloadOverride{}, false
 	}
 	overrides, err := config.ReadConfigManifestDownloadOverrides(e.Config.RootDir)
 	if err != nil {
-		return nil, nil, false
+		return config.ManifestDownloadOverride{}, false
 	}
 	item, ok := overrides[config.NormalizeManifestOverrideKey(pkgRef)]
 	if !ok || len(item.URLs) == 0 {
-		return nil, nil, false
+		return config.ManifestDownloadOverride{}, false
 	}
-	return append([]string(nil), item.URLs...), append([]string(nil), item.Hashes...), true
+	return item, true
 }
 
-func applyManifestDownloadOverrides(e *runtime.Engine, pkgRef string, m *manifest.Manifest, installArch string, req *etypes.InstallRequest) (*manifest.Manifest, error) {
-	if m == nil {
-		return nil, nil
+func downloadOverrideStale(item config.ManifestDownloadOverride, manifestPath string) bool {
+	if strings.TrimSpace(item.BaseHash) == "" {
+		return true
 	}
-	urls, hashes, ok := manifestDownloadOverride(e, pkgRef)
+	if strings.TrimSpace(manifestPath) == "" {
+		return true
+	}
+	currentHash, err := manifest.HashFile(manifestPath)
+	if err != nil {
+		return true
+	}
+	return currentHash != item.BaseHash
+}
+
+func applyManifestDownloadOverrides(e *runtime.Engine, pkgRef, manifestPath string, m *manifest.Manifest, installArch string, req *etypes.InstallRequest) (*manifest.Manifest, bool, bool, error) {
+	if m == nil {
+		return nil, false, false, nil
+	}
+	item, hasSaved := loadManifestDownloadOverride(e, pkgRef)
+	urls := append([]string(nil), item.URLs...)
+	hashes := append([]string(nil), item.Hashes...)
+	ok := hasSaved
+	stale := hasSaved && downloadOverrideStale(item, manifestPath)
 	if req != nil && len(req.DownloadURLOverrides) > 0 {
 		urls = append([]string(nil), req.DownloadURLOverrides...)
 		hashes = append([]string(nil), req.DownloadHashOverrides...)
 		ok = true
+		stale = false
 	}
-	if !ok {
-		return m, nil
+	if !ok || stale {
+		return m, false, stale && hasSaved && (req == nil || len(req.DownloadURLOverrides) == 0), nil
 	}
-	return manifest.ApplyDownloadOverride(m, installArch, urls, hashes)
+	out, err := manifest.ApplyDownloadOverride(m, installArch, urls, hashes)
+	if err != nil {
+		return nil, false, false, err
+	}
+	return out, true, false, nil
 }
 
-// SetManifestDownloadOverride persists a per-package download URL override.
-func SetManifestDownloadOverride(e *runtime.Engine, pkgRef string, urls, hashes []string) error {
+// SetManifestDownloadOverride persists a per-package download URL override with baseHash.
+func SetManifestDownloadOverride(e *runtime.Engine, pkgRef string, urls, hashes []string, baseHash string) error {
 	if e == nil || e.Config == nil {
 		return nil
 	}
-	return config.SetConfigManifestDownloadOverride(e.Config.RootDir, pkgRef, urls, hashes)
+	return config.SetConfigManifestDownloadOverride(e.Config.RootDir, pkgRef, urls, hashes, baseHash)
 }
 
 // ClearManifestDownloadOverride removes a per-package download URL override.
 func ClearManifestDownloadOverride(e *runtime.Engine, pkgRef string) error {
-	return SetManifestDownloadOverride(e, pkgRef, nil, nil)
+	return SetManifestDownloadOverride(e, pkgRef, nil, nil, "")
+}
+
+// SetManifestDownloadOverrideForRef resolves pkgRef and saves a URL override tied to the bucket manifest hash.
+func SetManifestDownloadOverrideForRef(e *runtime.Engine, ctx context.Context, pkgRef string, urls, hashes []string) error {
+	resolved, err := catalog.ResolveInstallRef(e, ctx, pkgRef)
+	if err != nil {
+		return err
+	}
+	lookupRef := runtime.ManifestLookupRef(resolved)
+	if err := catalog.EnsureBucketForInstall(e, ctx, lookupRef, nil); err != nil {
+		return err
+	}
+	manifestPath, _, err := e.BucketRegistry.GetManifestPath(lookupRef)
+	if err != nil {
+		return fmt.Errorf("find manifest: %w", err)
+	}
+	if len(urls) == 0 {
+		return ClearManifestDownloadOverride(e, resolved)
+	}
+	baseHash, err := manifest.HashFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("hash bucket manifest: %w", err)
+	}
+	return SetManifestDownloadOverride(e, resolved, urls, hashes, baseHash)
+}
+
+// PruneStaleManifestDownloadOverrides deletes download URL overrides whose baseHash
+// no longer matches the current bucket manifest (or whose package/manifest is gone).
+func PruneStaleManifestDownloadOverrides(e *runtime.Engine) (removed []string, err error) {
+	if e == nil || e.Config == nil || e.Config.RootDir == "" {
+		return nil, nil
+	}
+	return config.PruneManifestDownloadOverrides(e.Config.RootDir, func(pkgRef string, item config.ManifestDownloadOverride) bool {
+		if strings.TrimSpace(item.BaseHash) == "" {
+			return false
+		}
+		if e.BucketRegistry == nil {
+			return true
+		}
+		lookupRef := runtime.ManifestLookupRef(pkgRef)
+		manifestPath, _, pathErr := e.BucketRegistry.GetManifestPath(lookupRef)
+		if pathErr != nil || strings.TrimSpace(manifestPath) == "" {
+			return false
+		}
+		return !downloadOverrideStale(item, manifestPath)
+	})
 }
 
 // SetManifestJSONOverride persists a per-package manifest JSON override.
