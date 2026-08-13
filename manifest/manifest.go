@@ -46,6 +46,24 @@ type Manifest struct {
 	Notes        interface{}            `json:"notes,omitempty"`       // string or []string
 	Deprecated   interface{}            `json:"deprecated,omitempty"`  // Scoop deprecation notice (string or object)
 	Autoupdate   map[string]interface{} `json:"autoupdate,omitempty"`
+
+	// VersionProbe optionally describes how to read the runtime-installed version
+	// (e.g. after an app self-updates in place). Unknown to Scoop; ignored by Scoop.
+	VersionProbe *VersionProbe `json:"versionProbe,omitempty"`
+}
+
+// VersionProbe configures DetectInstalledVersion strategies for a package.
+type VersionProbe struct {
+	// File is a path relative to the install directory (preferred probe target).
+	File string `json:"file,omitempty"`
+	// Strategies is an ordered list: "fileversion", "command". Empty = defaults.
+	Strategies []string `json:"strategies,omitempty"`
+	// Args are passed when using the command strategy (default: ["--version"]).
+	Args []string `json:"args,omitempty"`
+	// Pattern is an optional regex with one capture group for command stdout.
+	Pattern string `json:"pattern,omitempty"`
+	// JSONKey selects a field when probing a JSON sidecar (default: "version").
+	JSONKey string `json:"jsonKey,omitempty"`
 }
 
 // Installer defines how to install the package

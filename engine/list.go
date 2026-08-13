@@ -119,6 +119,11 @@ func (e *Engine) listInstalledPackages(ctx context.Context,
 			pkg.Bucket = bucket
 		}
 
+		detected := e.detectPackageVersion(name, version)
+		pkg.DetectedVersion = detected.DetectedVersion
+		pkg.VersionDetectSrc = detected.Source
+		pkg.ExternallyUpdated = detected.ExternallyUpdated
+
 		if opts.Detailed {
 			shims, err := install.GetShimsForPackage(e.Engine, name, version)
 			if err == nil {

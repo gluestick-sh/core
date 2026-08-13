@@ -25,8 +25,11 @@ type InstalledPackageDetail struct {
 	License         string   `json:"license,omitempty"`
 	Depends         []string `json:"depends,omitempty"`
 	Notes           []string `json:"notes,omitempty"`
-	ManifestVersion string   `json:"manifestVersion,omitempty"`
-	UpdateAvailable bool     `json:"updateAvailable,omitempty"`
+	ManifestVersion   string   `json:"manifestVersion,omitempty"`
+	UpdateAvailable   bool     `json:"updateAvailable,omitempty"`
+	DetectedVersion   string   `json:"detectedVersion,omitempty"`
+	VersionDetectSrc  string   `json:"versionDetectSrc,omitempty"`
+	ExternallyUpdated bool     `json:"externallyUpdated,omitempty"`
 }
 
 // GetInstalledPackageDetail returns install path, cache stats, shims, and manifest metadata.
@@ -81,6 +84,11 @@ func (e *Engine) GetInstalledPackageDetail(pkgName string) (*InstalledPackageDet
 			detail.UpdateAvailable = true
 		}
 	}
+
+	detected := e.detectPackageVersion(pkgName, version)
+	detail.DetectedVersion = detected.DetectedVersion
+	detail.VersionDetectSrc = detected.Source
+	detail.ExternallyUpdated = detected.ExternallyUpdated
 
 	return detail, nil
 }

@@ -126,15 +126,18 @@ type Result struct {
 
 // Package represents a package.
 type Package struct {
-	Name          string
-	Version       string
-	Description   string
-	Homepage      string
-	Bucket        string
-	Deprecated    bool
-	InstalledAt   string
-	InstalledSize int64
-	Manifest      *ManifestInfo
+	Name              string
+	Version           string
+	Description       string
+	Homepage          string
+	Bucket            string
+	Deprecated        bool
+	InstalledAt       string
+	InstalledSize     int64
+	DetectedVersion   string
+	VersionDetectSrc  string
+	ExternallyUpdated bool
+	Manifest          *ManifestInfo
 }
 
 // ManifestInfo contains manifest information.

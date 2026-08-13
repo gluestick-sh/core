@@ -37,28 +37,34 @@ func (r Result) MarshalJSON() ([]byte, error) {
 }
 
 type packageJSON struct {
-	Name          string        `json:"name"`
-	Version       string        `json:"version"`
-	Description   string        `json:"description,omitempty"`
-	Homepage      string        `json:"homepage,omitempty"`
-	Bucket        string        `json:"bucket,omitempty"`
-	Deprecated    bool          `json:"deprecated,omitempty"`
-	InstalledAt   string        `json:"installedAt,omitempty"`
-	InstalledSize int64         `json:"installedSize,omitempty"`
-	Manifest      *ManifestInfo `json:"manifest,omitempty"`
+	Name              string        `json:"name"`
+	Version           string        `json:"version"`
+	Description       string        `json:"description,omitempty"`
+	Homepage          string        `json:"homepage,omitempty"`
+	Bucket            string        `json:"bucket,omitempty"`
+	Deprecated        bool          `json:"deprecated,omitempty"`
+	InstalledAt       string        `json:"installedAt,omitempty"`
+	InstalledSize     int64         `json:"installedSize,omitempty"`
+	DetectedVersion   string        `json:"detectedVersion,omitempty"`
+	VersionDetectSrc  string        `json:"versionDetectSrc,omitempty"`
+	ExternallyUpdated bool          `json:"externallyUpdated,omitempty"`
+	Manifest          *ManifestInfo `json:"manifest,omitempty"`
 }
 
 // MarshalJSON encodes Package for machine-readable CLI output.
 func (p Package) MarshalJSON() ([]byte, error) {
 	return json.Marshal(packageJSON{
-		Name:          p.Name,
-		Version:       p.Version,
-		Description:   p.Description,
-		Homepage:      p.Homepage,
-		Bucket:        p.Bucket,
-		Deprecated:    p.Deprecated,
-		InstalledAt:   p.InstalledAt,
-		InstalledSize: p.InstalledSize,
-		Manifest:      p.Manifest,
+		Name:              p.Name,
+		Version:           p.Version,
+		Description:       p.Description,
+		Homepage:          p.Homepage,
+		Bucket:            p.Bucket,
+		Deprecated:        p.Deprecated,
+		InstalledAt:       p.InstalledAt,
+		InstalledSize:     p.InstalledSize,
+		DetectedVersion:   p.DetectedVersion,
+		VersionDetectSrc:  p.VersionDetectSrc,
+		ExternallyUpdated: p.ExternallyUpdated,
+		Manifest:          p.Manifest,
 	})
 }
