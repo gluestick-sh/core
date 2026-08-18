@@ -253,6 +253,15 @@ func TestBuildInstallerScriptPythonBurnHelpers(t *testing.T) {
 	if abortPos < 0 || darkPos < 0 || msiPos < 0 || abortPos > darkPos || abortPos > msiPos {
 		t.Fatalf("helpers must be defined after abort (abort=%d dark=%d msi=%d)", abortPos, darkPos, msiPos)
 	}
+	if strings.Contains(script, "$etypes.Status") {
+		t.Fatal("installer helpers must not assign $etypes.Status; use a PowerShell $ok variable")
+	}
+	if !strings.Contains(script, "$ok = Invoke-ExternalCommand -FilePath $DarkPath") {
+		t.Fatal("Expand-DarkArchive must capture Invoke-ExternalCommand into $ok")
+	}
+	if !strings.Contains(script, "$ok = Invoke-ExternalCommand -FilePath $MsiPath") {
+		t.Fatal("Expand-MsiArchive must capture Invoke-ExternalCommand into $ok")
+	}
 }
 
 func TestMaterializeInstallerFile_allowsMove(t *testing.T) {

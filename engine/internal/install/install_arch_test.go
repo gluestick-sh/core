@@ -27,4 +27,10 @@ func TestInstallArchitectureOverride(t *testing.T) {
 	if urls := m.GetURLsForInstall(installArchitecture(req, m)); len(urls) != 1 || urls[0] != "https://example.com/x64.exe" {
 		t.Fatalf("urls = %v", urls)
 	}
+	if !architectureExplicit(req) {
+		t.Fatal("expected explicit architecture")
+	}
+	if architectureExplicit(&etypes.InstallRequest{}) {
+		t.Fatal("empty request is not explicit")
+	}
 }

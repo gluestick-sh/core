@@ -403,8 +403,8 @@ function Expand-MsiArchive {
   $ArgList = @('/a', $Path, '/qn', "TARGETDIR=$DestinationPath\SourceDir")
   $LogPath = Join-Path (Split-Path $Path) 'msi.log'
   if ($Switches) { $ArgList += (-split $Switches) }
-  $etypes.Status = Invoke-ExternalCommand -FilePath $MsiPath -ArgumentList $ArgList -LogPath $LogPath
-  if (!$etypes.Status) { abort "Failed to extract files from $Path." }
+  $ok = Invoke-ExternalCommand -FilePath $MsiPath -ArgumentList $ArgList -LogPath $LogPath
+  if (-not $ok) { abort "Failed to extract files from $Path." }
   if ($ExtractDir -and (Test-Path "$DestinationPath\SourceDir")) {
     movedir "$DestinationPath\SourceDir\$ExtractDir" $OriDestinationPath
     Remove-Item $DestinationPath -Recurse -Force
@@ -446,8 +446,8 @@ function Expand-DarkArchive {
     $ArgList = @('-nologo', '-x', $DestinationPath, $Path)
   }
   if ($Switches) { $ArgList += (-split $Switches) }
-  $etypes.Status = Invoke-ExternalCommand -FilePath $DarkPath -ArgumentList $ArgList -LogPath $LogPath
-  if (!$etypes.Status) { abort "Failed to extract files from $Path." }
+  $ok = Invoke-ExternalCommand -FilePath $DarkPath -ArgumentList $ArgList -LogPath $LogPath
+  if (-not $ok) { abort "Failed to extract files from $Path." }
   if (Test-Path "$DestinationPath\WixAttachedContainer") {
     Rename-Item "$DestinationPath\WixAttachedContainer" 'AttachedContainer' -ErrorAction Ignore
   } elseif (Test-Path "$DestinationPath\AttachedContainer\a0") {

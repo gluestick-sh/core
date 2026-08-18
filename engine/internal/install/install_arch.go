@@ -11,10 +11,15 @@ func installArchitecture(req *etypes.InstallRequest, m *manifest.Manifest) strin
 	if req == nil || m == nil {
 		return ""
 	}
-	if req.Options != nil {
-		if arch := strings.TrimSpace(req.Options["architecture"]); arch != "" {
-			return m.ArchitectureForInstall(arch)
-		}
+	if architectureExplicit(req) {
+		return m.ArchitectureForInstall(strings.TrimSpace(req.Options["architecture"]))
 	}
 	return m.SelectedArchitecture()
+}
+
+func architectureExplicit(req *etypes.InstallRequest) bool {
+	if req == nil || req.Options == nil {
+		return false
+	}
+	return strings.TrimSpace(req.Options["architecture"]) != ""
 }

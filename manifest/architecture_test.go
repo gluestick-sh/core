@@ -121,6 +121,34 @@ func TestSelectedArchitectureARM64Fallback64bit(t *testing.T) {
 	}
 }
 
+func TestFallbackArchitectureAfter404(t *testing.T) {
+	m := &Manifest{
+		Architecture: map[string]interface{}{
+			ArchARM64: map[string]interface{}{
+				"url": "https://example.com/arm64.exe",
+			},
+			Arch64bit: map[string]interface{}{
+				"url": "https://example.com/x64.exe",
+			},
+			Arch32bit: map[string]interface{}{
+				"url": "https://example.com/x86.exe",
+			},
+		},
+	}
+	if got := m.fallbackArchitectureForHost(ArchARM64, ArchARM64, 22000); got != Arch64bit {
+		t.Fatalf("after arm64 = %q want 64bit", got)
+	}
+	if got := m.fallbackArchitectureForHost(Arch64bit, ArchARM64, 22000); got != Arch32bit {
+		t.Fatalf("after 64bit = %q want 32bit", got)
+	}
+	if got := m.fallbackArchitectureForHost(Arch32bit, ArchARM64, 22000); got != "" {
+		t.Fatalf("after 32bit = %q want empty", got)
+	}
+	if got := m.fallbackArchitectureForHost("", ArchARM64, 22000); got != "" {
+		t.Fatalf("empty current = %q", got)
+	}
+}
+
 func (m *Manifest) selectArchitectureForHost(hostArch string, winBuild int) string {
 	if m.Architecture == nil {
 		return ""

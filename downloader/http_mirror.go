@@ -78,7 +78,7 @@ func (d *Downloader) doRequestWithFallback(
 		if resp.StatusCode >= 400 {
 			body := resp.Status
 			resp.Body.Close()
-			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
+			lastErr = fmt.Errorf("HTTP %d: %s (%s)", resp.StatusCode, body, u)
 			continue
 		}
 		return resp, usedURL, nil
@@ -157,7 +157,7 @@ func (d *Downloader) doGETWithFallback(
 		if !acceptStatus(resp.StatusCode) {
 			body := resp.Status
 			resp.Body.Close()
-			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
+			lastErr = fmt.Errorf("HTTP %d: %s (%s)", resp.StatusCode, body, u)
 			continue
 		}
 		return resp, usedURL, nil

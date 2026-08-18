@@ -27,12 +27,69 @@ func fetchInstallPhase(state *installState) error {
 	}
 
 	m := state.manifest
-	installArch := state.installArch
 
 	// Validate manifest exists (should never happen, but prevents panics)
 	if m == nil {
 		return fmt.Errorf("manifest is nil for %s (internal error)", state.pkgRef)
 	}
+
+	tried := map[string]bool{}
+	var lastErr error
+	for {
+		archKey := state.installArch
+		if archKey == "" {
+			archKey = "_"
+		}
+		if tried[archKey] {
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("manifest has no download URLs")
+		}
+		tried[archKey] = true
+
+		lastErr = fetchInstallAttempt(state, report)
+		if lastErr == nil {
+			return nil
+		}
+		err := lastErr
+		if architectureExplicit(state.req) || !isHTTPNotFound(err) {
+			return err
+		}
+		next := m.FallbackArchitecture(state.installArch)
+		if next == "" {
+			return err
+		}
+		verbose.Progressf("  %s download not found; falling back to %s\n", state.installArch, next)
+		resetFetchAttempt(state)
+		state.installArch = next
+	}
+}
+
+func resetFetchAttempt(state *installState) {
+	state.urlHashPairs = nil
+	state.downloadResults = nil
+	state.fromCache = false
+	state.cachedEntry = nil
+	state.fileExt = ""
+	state.downloadName = ""
+	state.multiArtifact = false
+	state.firstHashAlgo = ""
+	state.firstHashValue = ""
+	state.sawExtractDuringFetch = false
+	state.zipIngestProgress = nil
+	state.fetchDownloadProgress = nil
+}
+
+// fetchInstallAttempt handles the second phase of installation:
+// 1. Validates manifest URLs and hashes
+// 2. Checks cache for reusable entries
+// 3. Ensures required extractors (7z) are available
+// 4. Downloads artifacts (multi-artifact or single with mirror fallback)
+// 5. Records download results and progress
+func fetchInstallAttempt(state *installState, report func(phase etypes.Phase, status etypes.Status, pct float64, key string, args map[string]any, bytes, total int64)) error {
+	m := state.manifest
+	installArch := state.installArch
 
 	// Phase 2.1: Validate manifest has download URLs
 	urls := m.GetURLsForInstall(installArch)

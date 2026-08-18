@@ -16,11 +16,23 @@ func phaseError(cause string, err error, hint string) error {
 }
 
 func downloadPhaseError(urlCount int, err error) error {
+	hint := "Check your network connection or configure a GitHub mirror, then retry"
+	if isHTTPNotFound(err) {
+		hint = "The download URL does not exist. If you pinned @version, that release may be source-only or missing this architecture."
+	}
 	return phaseError(
 		fmt.Sprintf("download failed after trying %d URL(s)", urlCount),
 		err,
-		"Check your network connection or configure a GitHub mirror, then retry",
+		hint,
 	)
+}
+
+func isHTTPNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "HTTP 404") || strings.Contains(msg, "404 Not Found")
 }
 
 func extractPhaseError(err error) error {

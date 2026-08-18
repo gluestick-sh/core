@@ -236,6 +236,12 @@ func TestBuildInstallHookScriptExpandDark(t *testing.T) {
 	if !strings.Contains(script, "$global:GLUE_DARK = 'C:\\glue\\apps\\dark\\3.11.2\\dark.exe'") {
 		t.Fatalf("missing GLUE_DARK path: %q", script)
 	}
+	if strings.Contains(script, "$etypes.Status") {
+		t.Fatal("hook helpers must not assign $etypes.Status; use a PowerShell $ok variable")
+	}
+	if !strings.Contains(script, "$ok = Invoke-ExternalCommand -FilePath $DarkPath") {
+		t.Fatal("Expand-DarkArchive must capture Invoke-ExternalCommand into $ok")
+	}
 }
 
 func TestHookHelpersNeed7z(t *testing.T) {

@@ -70,6 +70,36 @@ func (m *Manifest) ArchitectureForInstall(override string) string {
 	return m.SelectedArchitecture()
 }
 
+// FallbackArchitecture returns the next host-preferred architecture with a
+// download URL after current. Used when the preferred arch's URL 404s
+// (e.g. autoupdate templates an arm64 URL onto a version that never shipped one).
+func (m *Manifest) FallbackArchitecture(current string) string {
+	return m.fallbackArchitectureForHost(current, hostArchitecture(), hostWindowsBuild())
+}
+
+func (m *Manifest) fallbackArchitectureForHost(current, hostArch string, winBuild int) string {
+	if m == nil || m.Architecture == nil || current == "" {
+		return ""
+	}
+	seenCurrent := false
+	for _, arch := range architectureCandidates(hostArch, winBuild) {
+		if !seenCurrent {
+			if arch == current {
+				seenCurrent = true
+			}
+			continue
+		}
+		block, ok := m.Architecture[arch].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if archBlockHasURL(block) {
+			return arch
+		}
+	}
+	return ""
+}
+
 func (m *Manifest) selectedArchBlock() map[string]interface{} {
 	return m.archBlockForInstall("")
 }
