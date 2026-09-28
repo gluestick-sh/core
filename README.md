@@ -108,6 +108,9 @@ go test ./... -count=1
 ## Documentation
 
 - [Security model](docs/security.md)
+- [Glossary and terminology ownership](docs/glossary.md)
+- [Kind registry](docs/kinds.md)
+- [Environment recipe schema v2 (draft)](docs/design/recipe-v2.md)
 - [Contributing](docs/CONTRIBUTING.md)
 
 ## Related projects
@@ -116,4 +119,4 @@ go test ./... -count=1
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE)
