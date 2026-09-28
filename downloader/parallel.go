@@ -113,6 +113,88 @@ func (d *Downloader) probeURLForParallel(ctx context.Context, url string) (total
 	return total, resp.StatusCode == http.StatusPartialContent
 }
 
+// tryParallelDownload fetches the artifact over multiple byte-range connections
+// when it is large enough and the server honours ranges. A fresh download and a
+// resumed one differ only in how the total size is discovered. Failures are
+// never fatal: the caller falls back to a single-connection download.
+func (d *Downloader) tryParallelDownload(
+	ctx context.Context,
+	task Task,
+	st *partialState,
+	fetchURL string,
+) (int64, bool) {
+	if !d.parallelDownload || d.workers <= 1 {
+		return 0, false
+	}
+	if st.offset > 0 {
+		return d.tryParallelResume(ctx, task, st, fetchURL)
+	}
+	return d.tryParallelFresh(ctx, task, st, fetchURL)
+}
+
+// tryParallelFresh splits a not-yet-started download into byte ranges.
+func (d *Downloader) tryParallelFresh(
+	ctx context.Context,
+	task Task,
+	st *partialState,
+	fetchURL string,
+) (int64, bool) {
+	total, rangeOK := d.probeParallelTarget(ctx, fetchURL, st.meta.TotalSize)
+	if !rangeOK || total < effectiveParallelMinBytes() {
+		return 0, false
+	}
+
+	totalSize, usedURL, err := d.downloadParallelToPartial(ctx, task, fetchURL, st.partPath, st.metaPath, total)
+	if err != nil {
+		verbose.Fprintf("Parallel download failed, using single connection: %v\n", err)
+		st.reset()
+		return 0, false
+	}
+	st.commit(usedURL, totalSize)
+	return totalSize, true
+}
+
+// tryParallelResume finishes a partially downloaded file with parallel ranges,
+// but only when enough bytes remain to be worth the extra connections.
+func (d *Downloader) tryParallelResume(
+	ctx context.Context,
+	task Task,
+	st *partialState,
+	fetchURL string,
+) (int64, bool) {
+	total := st.meta.TotalSize
+	if total <= 0 && st.offset >= minParallelResumeBytes {
+		total = d.probeContentLength(ctx, task.URL)
+	}
+	if !shouldParallelResume(total, st.offset) {
+		return 0, false
+	}
+
+	total, rangeOK := d.probeParallelTarget(ctx, fetchURL, total)
+	if !rangeOK || total <= 0 {
+		return 0, false
+	}
+
+	totalSize, usedURL, err := d.downloadParallelResumeToPartial(ctx, task, fetchURL, st.partPath, st.metaPath, total, st.offset)
+	if err != nil {
+		verbose.Fprintf("Parallel resume failed, using single connection: %v\n", err)
+		return 0, false
+	}
+	st.commit(usedURL, totalSize)
+	return totalSize, true
+}
+
+// probeParallelTarget reports the artifact size for fetchURL and whether the
+// server accepts byte ranges. knownTotal is reused when > 0 to skip the size
+// lookup; range support is always probed.
+func (d *Downloader) probeParallelTarget(ctx context.Context, fetchURL string, knownTotal int64) (int64, bool) {
+	if knownTotal > 0 {
+		_, rangeOK := d.probeURLForParallel(ctx, fetchURL)
+		return knownTotal, rangeOK
+	}
+	return d.probeURLForParallel(ctx, fetchURL)
+}
+
 func (d *Downloader) downloadParallelToPartial(
 	ctx context.Context,
 	task Task,

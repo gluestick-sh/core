@@ -17,9 +17,7 @@ import (
 
 	"github.com/schollz/progressbar/v3"
 
-	"github.com/gluestick-sh/core/config"
 	"github.com/gluestick-sh/core/humanize"
-	"github.com/gluestick-sh/core/verbose"
 )
 
 // stderrOut wraps stderr so progress bar updates flush immediately on Windows.
@@ -127,125 +125,45 @@ func parseContentRange(header string) (start, end, total int64, ok bool) {
 // On success the caller must remove the partial files after ingesting into cache store.
 func (d *Downloader) downloadToPartial(ctx context.Context, task Task) (partPath string, totalSize int64, err error) {
 	partPath, metaPath := d.partialPaths(task)
-	if err := os.MkdirAll(filepath.Dir(partPath), 0755); err != nil {
-		return "", 0, fmt.Errorf("create partial dir: %w", err)
+	if err := d.ensurePartialDir(partPath); err != nil {
+		return "", 0, err
 	}
 
 	if isFTPURL(task.URL) {
-		_ = os.Remove(partPath)
-		_ = os.Remove(metaPath)
+		removePartial(partPath, metaPath)
 		totalSize, err := d.downloadFTPToPartial(ctx, task, partPath, metaPath)
 		return partPath, totalSize, err
 	}
 
-	meta := partialMeta{URL: task.URL}
-	if existing, err := loadPartialMeta(metaPath); err == nil {
-		if existing.URL != task.URL {
-			_ = os.Remove(partPath)
-			_ = os.Remove(metaPath)
-		} else {
-			meta = existing
-		}
+	st, err := d.loadPartialState(task, partPath, metaPath)
+	if err != nil {
+		return "", 0, err
+	}
+	if st.complete() {
+		return st.partPath, st.meta.TotalSize, nil
 	}
 
-	offset := int64(0)
-	if info, err := os.Stat(partPath); err == nil {
-		offset = info.Size()
-	}
-
-	// Partials without source_url cannot be resumed across mirror vs direct hosts.
-	if offset > 0 && meta.SourceURL == "" {
-		if len(d.ghProxies) > 0 && config.IsGitHubURL(task.URL) {
-			verbose.Fprintf("Discarding partial without source_url (%s)\n", humanize.FormatBytes(offset))
-			_ = os.Remove(partPath)
-			_ = os.Remove(metaPath)
-			offset = 0
-			meta = partialMeta{URL: task.URL}
-		} else {
-			meta.SourceURL = task.URL
-		}
-	}
-
-	if meta.TotalSize > 0 && offset >= meta.TotalSize {
-		return partPath, meta.TotalSize, nil
-	}
-
-	urls := urlsForResume(task.URL, d.ghProxies, meta.SourceURL, offset)
+	urls := urlsForResume(task.URL, d.ghProxies, st.meta.SourceURL, st.offset)
 	var lastErr error
 	for i, fetchURL := range urls {
 		if i > 0 {
-			offset = 0
-			meta = partialMeta{URL: task.URL}
-			_ = os.Remove(partPath)
-			_ = os.Remove(metaPath)
+			// A mirror can only serve us from byte zero: partial offsets are not portable.
+			st.reset()
 		}
 
-		if offset == 0 && d.parallelDownload && d.workers > 1 {
-			total := meta.TotalSize
-			var rangeOK bool
-			if total <= 0 {
-				total, rangeOK = d.probeURLForParallel(ctx, fetchURL)
-			} else {
-				_, rangeOK = d.probeURLForParallel(ctx, fetchURL)
-			}
-			if rangeOK && total >= effectiveParallelMinBytes() {
-				totalSize, usedURL, err := d.downloadParallelToPartial(ctx, task, fetchURL, partPath, metaPath, total)
-				if err == nil {
-					if usedURL != "" {
-						meta.SourceURL = usedURL
-						meta.URL = task.URL
-						meta.TotalSize = totalSize
-						_ = savePartialMeta(metaPath, meta)
-					}
-					return partPath, totalSize, nil
-				}
-				verbose.Fprintf("Parallel download failed, using single connection: %v\n", err)
-				_ = os.Remove(partPath)
-				_ = os.Remove(metaPath)
-				meta = partialMeta{URL: task.URL}
-			}
+		if total, ok := d.tryParallelDownload(ctx, task, &st, fetchURL); ok {
+			return st.partPath, total, nil
 		}
 
-		if offset > 0 && d.parallelDownload && d.workers > 1 {
-			total := meta.TotalSize
-			if total <= 0 && offset >= minParallelResumeBytes {
-				total = d.probeContentLength(ctx, task.URL)
-			}
-			if shouldParallelResume(total, offset) {
-				var rangeOK bool
-				if total <= 0 {
-					total, rangeOK = d.probeURLForParallel(ctx, fetchURL)
-				} else {
-					_, rangeOK = d.probeURLForParallel(ctx, fetchURL)
-				}
-				if rangeOK && total > 0 {
-					totalSize, usedURL, err := d.downloadParallelResumeToPartial(ctx, task, fetchURL, partPath, metaPath, total, offset)
-					if err == nil {
-						if usedURL != "" {
-							meta.SourceURL = usedURL
-							meta.URL = task.URL
-							meta.TotalSize = totalSize
-							_ = savePartialMeta(metaPath, meta)
-						}
-						return partPath, totalSize, nil
-					}
-					verbose.Fprintf("Parallel resume failed, using single connection: %v\n", err)
-				}
-			}
-		}
-
-		totalSize, usedURL, err := d.fetchToPartialURL(ctx, task, fetchURL, partPath, metaPath, meta, offset)
+		totalSize, usedURL, err := d.fetchToPartialURL(ctx, task, fetchURL, &st)
 		if err == nil {
-			if usedURL != "" {
-				meta.SourceURL = usedURL
-				meta.URL = task.URL
-				meta.TotalSize = totalSize
-				_ = savePartialMeta(metaPath, meta)
-			}
-			return partPath, totalSize, nil
+			st.commit(usedURL, totalSize)
+			return st.partPath, totalSize, nil
 		}
 		lastErr = err
-		if offset > 0 {
+		if st.offset > 0 {
+			// Resuming pins us to the source URL the bytes came from, so there is
+			// no other mirror left to try.
 			break
 		}
 	}
@@ -381,131 +299,204 @@ func downloadBarDescription(filename string, offset int64) string {
 	return filename
 }
 
-func (d *Downloader) fetchToPartialURL(ctx context.Context, task Task, fetchURL, partPath, metaPath string, meta partialMeta, offset int64) (totalSize int64, usedURL string, err error) {
-	bar := makeDownloadBar(downloadBarDescription(task.Filename, offset), meta.TotalSize, offset)
+// responseOutcome is the decision derived from a download response: the offset
+// the body should be written at, and the total size the server claims.
+type responseOutcome struct {
+	offset     int64
+	totalSize  int64
+	restarts   bool // server refused the range: retry the whole file from zero
+	shortRange bool // offset is already at/past totalSize: nothing left to fetch
+}
+
+// resolveResponse inspects a download response and normalizes it into the
+// offset to write at and the total size of the artifact.
+func resolveResponse(resp *http.Response, meta partialMeta, offset int64) (responseOutcome, error) {
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		start, _, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
+		if ok {
+			if start != offset {
+				return responseOutcome{}, fmt.Errorf("unexpected Content-Range start %d, expected %d", start, offset)
+			}
+			if total > 0 {
+				meta.TotalSize = total
+			}
+		}
+	case http.StatusOK:
+		// The server ignored Range and is sending the whole file, so any bytes
+		// already on disk must be discarded rather than appended to.
+		offset = 0
+	case http.StatusRequestedRangeNotSatisfiable:
+		if meta.TotalSize > 0 && offset >= meta.TotalSize {
+			return responseOutcome{offset: offset, totalSize: meta.TotalSize, shortRange: true}, nil
+		}
+		return responseOutcome{restarts: true}, nil
+	default:
+		return responseOutcome{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	// A 206 keeps whatever total we already had when Content-Range omits it;
+	// other statuses advertise the size directly, but only override when the
+	// server actually gave one.
+	total := meta.TotalSize
+	if resp.StatusCode != http.StatusPartialContent {
+		if n, ok := responseContentLength(resp); ok {
+			total = n
+		}
+	}
+	return responseOutcome{offset: offset, totalSize: total}, nil
+}
+
+// responseContentLength reads the body size a server advertised, falling back
+// to the Content-Length header for responses that do not populate it. The
+// second result reports whether the server stated a size at all.
+func responseContentLength(resp *http.Response) (int64, bool) {
+	if resp.ContentLength > 0 {
+		return resp.ContentLength, true
+	}
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// fetchToPartialURL downloads fetchURL over a single connection into the
+// partial file, appending to any bytes already transferred when resuming. It
+// updates st with the size the server reported and returns the source URL used.
+func (d *Downloader) fetchToPartialURL(ctx context.Context, task Task, fetchURL string, st *partialState) (int64, string, error) {
+	offset, total := st.offset, st.meta.TotalSize
+
+	bar := makeDownloadBar(downloadBarDescription(task.Filename, offset), total, offset)
 	defer completeDownloadBar(bar)
 
 	var barMu sync.Mutex
-	setDownloadBarProgressLocked(&barMu, bar, meta.TotalSize, offset)
-	pc := newProgressCounter(ctx, task.Filename, meta.TotalSize, offset, bar, &barMu)
+	setDownloadBarProgressLocked(&barMu, bar, total, offset)
+	pc := newProgressCounter(ctx, task.Filename, total, offset, bar, &barMu)
 	pc.emit()
-	usedURL = fetchURL
 
-	// Best-effort size probe while resuming without saved total_size.
-	if offset > 0 && meta.TotalSize <= 0 {
-		go func() {
-			if total := d.probeContentLength(ctx, task.URL); total > 0 {
-				setDownloadBarProgressLocked(&barMu, bar, total, offset)
-				pc.setTotal(total)
-				_ = savePartialMeta(metaPath, partialMeta{URL: task.URL, SourceURL: fetchURL, TotalSize: total})
-			}
-		}()
+	// A resumed download whose total size was never recorded would show a
+	// placeholder bar, so probe for the real size while the body streams in.
+	if offset > 0 && total <= 0 {
+		go d.probeTotalWhileResuming(ctx, task.URL, fetchURL, st, bar, &barMu, pc)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fetchURL, nil)
+	resp, err := d.getWithRange(ctx, fetchURL, offset)
 	if err != nil {
-		return 0, "", fmt.Errorf("create request: %w", err)
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	outcome, err := resolveResponse(resp, st.meta, offset)
+	if err != nil {
+		return 0, "", err
+	}
+	if outcome.restarts {
+		// The server refused our range, so the partial is useless: start over.
+		st.reset()
+		return d.fetchToPartialURL(ctx, task, fetchURL, st)
+	}
+	if outcome.shortRange {
+		return outcome.totalSize, fetchURL, nil
+	}
+	if outcome.offset == 0 {
+		// The server ignored Range and resent the whole file; drop stale bytes
+		// and the probe results that described them.
+		_ = os.Truncate(st.partPath, 0)
+		bar.Reset()
+	}
+
+	st.meta.TotalSize = outcome.totalSize
+	setDownloadBarProgressLocked(&barMu, bar, outcome.totalSize, outcome.offset)
+	pc.setTotal(outcome.totalSize)
+	if outcome.totalSize > 0 {
+		st.commit(fetchURL, outcome.totalSize)
+	}
+
+	finalSize, err := d.appendResponseBody(st.partPath, resp.Body, outcome.offset, pc)
+	if err != nil {
+		return 0, "", err
+	}
+	if st.meta.TotalSize <= 0 {
+		st.meta.TotalSize = finalSize
+	}
+	if err := savePartialMeta(st.metaPath, st.meta); err != nil {
+		return 0, "", fmt.Errorf("save partial meta: %w", err)
+	}
+	if st.meta.TotalSize > 0 && finalSize != st.meta.TotalSize {
+		return 0, "", fmt.Errorf("incomplete download: got %d bytes, expected %d", finalSize, st.meta.TotalSize)
+	}
+	return st.meta.TotalSize, fetchURL, nil
+}
+
+// getWithRange issues the GET for a single-connection download, asking for the
+// remainder of the file when resuming.
+func (d *Downloader) getWithRange(ctx context.Context, fetchURL string, offset int64) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("User-Agent", d.userAgent)
 	if offset > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
 
-	resp, err := doRequestWaitWithBar(ctx, d.client, req, bar, &barMu)
+	resp, err := doRequestWaitWithBar(ctx, d.client, req, nil, nil)
 	if err != nil {
-		return 0, "", fmt.Errorf("download failed: %w", err)
+		return nil, fmt.Errorf("download failed: %w", err)
 	}
-	defer resp.Body.Close()
+	return resp, nil
+}
 
-	switch resp.StatusCode {
-	case http.StatusPartialContent:
-		// append below
-	case http.StatusOK:
-		if offset > 0 {
-			offset = 0
-			_ = os.Truncate(partPath, 0)
-			bar.Reset()
-		}
-	case http.StatusRequestedRangeNotSatisfiable:
-		if meta.TotalSize > 0 && offset >= meta.TotalSize {
-			return meta.TotalSize, usedURL, nil
-		}
-		_ = os.Remove(partPath)
-		_ = os.Remove(metaPath)
-		return d.fetchToPartialURL(ctx, task, fetchURL, partPath, metaPath, partialMeta{URL: task.URL, SourceURL: fetchURL}, 0)
-	default:
-		return 0, "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+// probeTotalWhileResuming looks up the artifact size for a resumed download
+// that has no recorded total, updating the progress display and the sidecar
+// when the lookup succeeds. It is advisory: failures are ignored.
+func (d *Downloader) probeTotalWhileResuming(
+	ctx context.Context,
+	taskURL, fetchURL string,
+	st *partialState,
+	bar *progressbar.ProgressBar,
+	barMu *sync.Mutex,
+	pc *progressCounter,
+) {
+	total := d.probeContentLength(ctx, taskURL)
+	if total <= 0 {
+		return
 	}
-
-	if resp.StatusCode == http.StatusPartialContent {
-		if start, _, total, ok := parseContentRange(resp.Header.Get("Content-Range")); ok {
-			if start != offset {
-				return 0, "", fmt.Errorf("unexpected Content-Range start %d, expected %d", start, offset)
-			}
-			if total > 0 {
-				meta.TotalSize = total
-			}
-		}
-	} else if resp.ContentLength > 0 {
-		meta.TotalSize = resp.ContentLength
-	} else if cl := resp.Header.Get("Content-Length"); cl != "" {
-		if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
-			meta.TotalSize = n
-		}
-	}
-
-	setDownloadBarProgressLocked(&barMu, bar, meta.TotalSize, offset)
-	pc.setTotal(meta.TotalSize)
-	meta.URL = task.URL
-	meta.SourceURL = fetchURL
-	if meta.TotalSize > 0 {
-		_ = savePartialMeta(metaPath, meta)
-	}
-
-	flags := os.O_CREATE | os.O_WRONLY
-	file, err := os.OpenFile(partPath, flags, 0644)
+	setDownloadBarProgressLocked(barMu, bar, total, st.offset)
+	pc.setTotal(total)
+	_ = savePartialMeta(st.metaPath, partialMeta{URL: taskURL, SourceURL: fetchURL, TotalSize: total})
+}
+// at offset when resuming and truncating when starting over. It returns the
+// final size of the file in bytes.
+func (d *Downloader) appendResponseBody(partPath string, body io.Reader, offset int64, pc *progressCounter) (int64, error) {
+	file, err := os.OpenFile(partPath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return 0, "", fmt.Errorf("open partial file: %w", err)
+		return 0, fmt.Errorf("open partial file: %w", err)
 	}
 	defer file.Close()
 
 	if offset > 0 {
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {
-			return 0, "", fmt.Errorf("seek partial file: %w", err)
+			return 0, fmt.Errorf("seek partial file: %w", err)
 		}
-	} else {
-		if err := file.Truncate(0); err != nil {
-			return 0, "", fmt.Errorf("truncate partial file: %w", err)
-		}
+	} else if err := file.Truncate(0); err != nil {
+		return 0, fmt.Errorf("truncate partial file: %w", err)
 	}
 
 	buf := d.acquireCopyBuf()
-	written, err := io.CopyBuffer(file, pc.reader(resp.Body), buf)
+	written, err := io.CopyBuffer(file, pc.reader(body), buf)
 	d.releaseCopyBuf(buf)
 	if err != nil {
+		// Flush what did land so the next run can resume from here.
 		_ = file.Sync()
-		return 0, "", fmt.Errorf("write partial file: %w", err)
+		return 0, fmt.Errorf("write partial file: %w", err)
 	}
-
-	finalSize := offset + written
 	if err := file.Sync(); err != nil {
-		return 0, "", fmt.Errorf("sync partial file: %w", err)
+		return 0, fmt.Errorf("sync partial file: %w", err)
 	}
-
-	meta.URL = task.URL
-	meta.SourceURL = fetchURL
-	if meta.TotalSize <= 0 {
-		meta.TotalSize = finalSize
-	}
-	if err := savePartialMeta(metaPath, meta); err != nil {
-		return 0, "", fmt.Errorf("save partial meta: %w", err)
-	}
-
-	if meta.TotalSize > 0 && finalSize != meta.TotalSize {
-		return 0, "", fmt.Errorf("incomplete download: got %d bytes, expected %d", finalSize, meta.TotalSize)
-	}
-
-	return meta.TotalSize, usedURL, nil
+	return offset + written, nil
 }
 
 func removePartial(partPath, metaPath string) {
