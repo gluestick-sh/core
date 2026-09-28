@@ -6,9 +6,9 @@ import (
 	etypes "github.com/gluestick-sh/core/engine/types"
 )
 
-// Engine is the public facade over the runtime engine implementation.
+// Engine is the public facade over the internal runtime services.
 type Engine struct {
-	*runtime.Engine
+	*runtime.Services
 }
 
 // These aliases re-export the engine's public request, result, and catalog

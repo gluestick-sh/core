@@ -63,7 +63,7 @@ func TestPruneStaleManifestDownloadOverrides(t *testing.T) {
 	if err := reg.ReloadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config:         &EngineConfig{RootDir: root},
 		BucketRegistry: reg,
 	}}

@@ -33,7 +33,7 @@ func launchIndexPath(rootDir string) string {
 }
 
 // LaunchIndexKind returns the user override for a launcher, if any.
-func LaunchIndexKind(e *eruntime.Engine, pkgName, relPath string) (LaunchKind, bool) {
+func LaunchIndexKind(e *eruntime.Services, pkgName, relPath string) (LaunchKind, bool) {
 	return launchIndexKind(e, pkgName, relPath)
 }
 
@@ -47,7 +47,7 @@ func LaunchIndexKind(e *eruntime.Engine, pkgName, relPath string) (LaunchKind, b
 // Returns:
 //   - kind: Launch kind (gui, console, skip) if override exists
 //   - true if an override was found, false otherwise
-func launchIndexKind(e *eruntime.Engine, pkgName, relPath string) (LaunchKind, bool) {
+func launchIndexKind(e *eruntime.Services, pkgName, relPath string) (LaunchKind, bool) {
 	if e == nil || e.Config == nil {
 		return "", false
 	}
@@ -62,7 +62,7 @@ func launchIndexKind(e *eruntime.Engine, pkgName, relPath string) (LaunchKind, b
 
 // SetLaunchPreference sets or clears the launch override for a single launcher.
 // A kind of "auto" or empty clears any existing override.
-func SetLaunchPreference(e *eruntime.Engine, pkgName, relPath, kind string) error {
+func SetLaunchPreference(e *eruntime.Services, pkgName, relPath, kind string) error {
 	parsed, err := parseLaunchKindInput(kind)
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func SetLaunchPreference(e *eruntime.Engine, pkgName, relPath, kind string) erro
 
 // SetLaunchPreferences applies multiple launch preference updates in one atomic write.
 // Kind values: gui, console, skip, or auto (clear override).
-func SetLaunchPreferences(e *eruntime.Engine, pkgName string, updates map[string]string) error {
+func SetLaunchPreferences(e *eruntime.Services, pkgName string, updates map[string]string) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -88,7 +88,7 @@ func SetLaunchPreferences(e *eruntime.Engine, pkgName string, updates map[string
 }
 
 // RemoveLaunchEntry drops a discovered launcher from the open-program menu.
-func RemoveLaunchEntry(e *eruntime.Engine, pkgName, relPath string) error {
+func RemoveLaunchEntry(e *eruntime.Services, pkgName, relPath string) error {
 	if e == nil || e.Config == nil {
 		return fmt.Errorf("engine not initialized")
 	}
@@ -120,7 +120,7 @@ func RemoveLaunchEntry(e *eruntime.Engine, pkgName, relPath string) error {
 }
 
 // AddLaunchEntry restores a launcher to the open-program menu.
-func AddLaunchEntry(e *eruntime.Engine, pkgName, relPath, kind string) error {
+func AddLaunchEntry(e *eruntime.Services, pkgName, relPath, kind string) error {
 	if e == nil || e.Config == nil {
 		return fmt.Errorf("engine not initialized")
 	}
@@ -177,7 +177,7 @@ func AddLaunchEntry(e *eruntime.Engine, pkgName, relPath, kind string) error {
 //   - updates: Map of relative paths to launch kinds
 //
 // Returns error if the update fails.
-func setLaunchPreferences(e *eruntime.Engine, pkgName string, updates map[string]string) error {
+func setLaunchPreferences(e *eruntime.Services, pkgName string, updates map[string]string) error {
 	if e == nil || e.Config == nil {
 		return fmt.Errorf("engine not initialized")
 	}
@@ -270,7 +270,7 @@ func normalizeLaunchRelPath(relPath string) string {
 //   - pkgName: Package name
 //
 // Returns a set of relative paths (lowercase) that have been removed.
-func launchRemovedSet(e *eruntime.Engine, pkgName string) map[string]struct{} {
+func launchRemovedSet(e *eruntime.Services, pkgName string) map[string]struct{} {
 	out := make(map[string]struct{})
 	if e == nil || e.Config == nil {
 		return out

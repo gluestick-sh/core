@@ -29,8 +29,8 @@ func writeTestPE(t *testing.T, path string, console bool) {
 	}
 }
 
-func testEngine(root string) *runtime.Engine {
-	return &runtime.Engine{Config: &etypes.EngineConfig{RootDir: root}}
+func testEngine(root string) *runtime.Services {
+	return &runtime.Services{Config: &etypes.EngineConfig{RootDir: root}}
 }
 
 func TestClassifyLaunchTarget7zip(t *testing.T) {

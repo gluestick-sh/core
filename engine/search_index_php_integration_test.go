@@ -38,12 +38,12 @@ func TestRealPHPBucketIndex(t *testing.T) {
 	}
 	bucketRegistry.ReloadFromDisk()
 
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config:         &EngineConfig{RootDir: root},
 		BucketRegistry: bucketRegistry,
 		SearchIdx:      runtime.NewIndex(),
 	}}
-	runtime.RebuildSearchIndex(e.Engine)
+	runtime.RebuildSearchIndex(e.Services)
 
 	counts := e.SearchIdx.CountByBucket(false, nil)
 	if counts["php"] == 0 {

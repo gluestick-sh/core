@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/gluestick-sh/core/apps"
-	"github.com/gluestick-sh/core/engine/internal/install"
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"github.com/gluestick-sh/core/engine/internal/runtime"
 	"github.com/gluestick-sh/core/manifest"
 	"github.com/gluestick-sh/core/verbose"
 )
 
-func loadUninstallManifestContext(e *runtime.Engine, installDir, pkgName string) (*manifest.Manifest, string, string) {
+func loadUninstallManifestContext(e *runtime.Services, installDir, pkgName string) (*manifest.Manifest, string, string) {
 	if rec, err := apps.LoadInstallRecord(installDir); err == nil && rec.Manifest != nil {
 		bucket := rec.Bucket
 		if bucket == "" {
@@ -22,7 +22,7 @@ func loadUninstallManifestContext(e *runtime.Engine, installDir, pkgName string)
 		arch := rec.Manifest.SelectedArchitecture()
 		return rec.Manifest, bucket, arch
 	}
-	m, err := install.LoadManifestForReset(e, installDir, pkgName)
+	m, err := lifecycle.LoadManifestForReset(e, installDir, pkgName)
 	if err != nil || m == nil {
 		return nil, "main", ""
 	}
@@ -31,7 +31,7 @@ func loadUninstallManifestContext(e *runtime.Engine, installDir, pkgName string)
 
 // runManifestUninstallHooks runs Scoop pre_uninstall and uninstaller.script before file removal.
 // Service teardown hooks must run before process checks and deleting installDir (Scoop order).
-func runManifestUninstallHooks(e *runtime.Engine,
+func runManifestUninstallHooks(e *runtime.Services,
 	ctx context.Context,
 	bucketName, pkgName, installDir, targetVer, installArch string,
 	m *manifest.Manifest,
@@ -39,7 +39,7 @@ func runManifestUninstallHooks(e *runtime.Engine,
 	if m == nil {
 		return nil
 	}
-	downloadName := install.DownloadNameFromManifest(m)
+	downloadName := lifecycle.DownloadNameFromManifest(m)
 	if bucketName == "" {
 		bucketName = "main"
 	}
@@ -51,26 +51,26 @@ func runManifestUninstallHooks(e *runtime.Engine,
 	}
 
 	allHooks := append(append([]string{}, preHooks...), uninstallerHooks...)
-	sevenZip, dark, err := install.ResolveHookHelpers(e, ctx, allHooks, nil, pkgName)
+	sevenZip, dark, err := lifecycle.ResolveHookHelpers(e, ctx, allHooks, pkgName, nil)
 	if err != nil {
 		return fmt.Errorf("uninstall hooks: %w", err)
 	}
 
-	run := func(kind string, hooks []string, fn func(install.HookScriptEnv) error) error {
+	run := func(kind string, hooks []string, fn func(lifecycle.HookScriptEnv) error) error {
 		if len(hooks) == 0 {
 			return nil
 		}
 		verbose.Progressf("  Running %s...\n", kind)
-		env := install.NewHookScriptEnv(e, installDir, downloadName, targetVer, bucketName+"/"+pkgName, pkgName, installArch, hooks)
+		env := lifecycle.NewHookScriptEnv(e, installDir, downloadName, targetVer, bucketName+"/"+pkgName, pkgName, installArch, hooks)
 		env.SevenZip = sevenZip
 		env.Dark = dark
 		return fn(env)
 	}
 
-	if err := run("pre_uninstall", preHooks, install.RunPreUninstallHooks); err != nil {
+	if err := run("pre_uninstall", preHooks, lifecycle.RunPreUninstallHooks); err != nil {
 		return err
 	}
-	if err := run("uninstaller.script", uninstallerHooks, install.RunUninstallerHooks); err != nil {
+	if err := run("uninstaller.script", uninstallerHooks, lifecycle.RunUninstallerHooks); err != nil {
 		return err
 	}
 	if uninstallHooksNeedSettleTime(allHooks) {
@@ -79,7 +79,7 @@ func runManifestUninstallHooks(e *runtime.Engine,
 	return nil
 }
 
-func runManifestPostUninstallHooks(e *runtime.Engine,
+func runManifestPostUninstallHooks(e *runtime.Services,
 	ctx context.Context,
 	bucketName, pkgName, installDir, targetVer, installArch string,
 	m *manifest.Manifest,
@@ -92,18 +92,18 @@ func runManifestPostUninstallHooks(e *runtime.Engine,
 		return nil
 	}
 	verbose.Progressf("  Running post_uninstall...\n")
-	downloadName := install.DownloadNameFromManifest(m)
+	downloadName := lifecycle.DownloadNameFromManifest(m)
 	if bucketName == "" {
 		bucketName = "main"
 	}
-	sevenZip, dark, err := install.ResolveHookHelpers(e, ctx, hooks, nil, pkgName)
+	sevenZip, dark, err := lifecycle.ResolveHookHelpers(e, ctx, hooks, pkgName, nil)
 	if err != nil {
 		return fmt.Errorf("post_uninstall: %w", err)
 	}
-	env := install.NewHookScriptEnv(e, installDir, downloadName, targetVer, bucketName+"/"+pkgName, pkgName, installArch, hooks)
+	env := lifecycle.NewHookScriptEnv(e, installDir, downloadName, targetVer, bucketName+"/"+pkgName, pkgName, installArch, hooks)
 	env.SevenZip = sevenZip
 	env.Dark = dark
-	return install.RunPostUninstallHooks(env)
+	return lifecycle.RunPostUninstallHooks(env)
 }
 
 func uninstallHooksNeedSettleTime(hooks []string) bool {

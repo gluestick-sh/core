@@ -146,5 +146,5 @@ func (e *Engine) ReloadBuckets(refreshExisting bool) {
 		return
 	}
 	e.BucketRegistry.ReloadFromDisk()
-	runtime.SyncSearchIndex(e.Engine, refreshExisting)
+	runtime.SyncSearchIndex(e.Services, refreshExisting)
 }

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"path/filepath"
 	"context"
 	"fmt"
 	"strings"
@@ -16,11 +17,11 @@ import (
 
 // NewEngine creates a new package engine instance.
 func NewEngine(cfg *EngineConfig) (*Engine, error) {
-	r, err := runtime.NewEngine(cfg)
+	r, err := runtime.NewServices(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{Engine: r}, nil
+	return &Engine{Services: r}, nil
 }
 
 // Install installs a package using the same pipeline as the CLI.
@@ -36,7 +37,7 @@ func (e *Engine) Install(ctx context.Context, req *InstallRequest, reporter Prog
 
 	runtime.ReportProgress(reporter, PhaseResolve, req.Name, StatusRunning, 0, message.ProgressInstallStarting, nil, 0, 0)
 
-	if err := catalog.ValidateInstallTarget(e.Engine, ctx, req); err != nil {
+	if err := catalog.ValidateInstallTarget(e.Services, ctx, req); err != nil {
 		_ = e.Cache.RecordActivity("install", pkgName, "", "failed", map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -52,7 +53,7 @@ func (e *Engine) Install(ctx context.Context, req *InstallRequest, reporter Prog
 		return createErrorResult(e, &req.Request, req.Name, err, installFailureMessage(err), start)
 	}
 
-	if err := install.PackageFull(e.Engine, ctx, req.Name, req, reporter); err != nil {
+	if err := install.PackageFull(e.Services, ctx, req.Name, req, reporter); err != nil {
 		_ = e.Cache.RecordActivity("install", pkgName, "", "failed", map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -86,7 +87,7 @@ func (e *Engine) Install(ctx context.Context, req *InstallRequest, reporter Prog
 	}
 
 	var suggestions []PackageSuggestion
-	if resolvedRef, err := catalog.ResolveInstallRef(e.Engine, ctx, req.Name); err == nil {
+	if resolvedRef, err := catalog.ResolveInstallRef(e.Services, ctx, req.Name); err == nil {
 		if s, err := e.missingSuggestions(ctx, resolvedRef); err == nil {
 			suggestions = s
 		}
@@ -110,12 +111,21 @@ func (e *Engine) Uninstall(ctx context.Context, req *UninstallRequest, reporter 
 
 	runtime.ReportProgress(reporter, PhaseResolve, req.Name, StatusRunning, 0, message.ProgressUninstallStarting, nil, 0, 0)
 
-	uninstalledVer, err := uninstall.PackageFull(e.Engine, ctx, req.Name, req)
+	uninstalledVer, activateVer, err := uninstall.PackageFull(e.Services, ctx, req.Name, req)
 	if err != nil {
 		_ = e.Cache.RecordActivity("uninstall", pkgName, targetVer, "failed", map[string]interface{}{
 			"error": err.Error(),
 		})
 		return createErrorResult(e, &req.Request, req.Name, err, "Uninstall failed", start)
+	}
+	// When the removed version was active and others remain, the current link was
+	// already switched inside uninstall; relink shims/shortcuts for the newly
+	// active version here so the uninstall package stays free of install internals.
+	if activateVer != "" {
+		root := e.Services.Config.RootDir
+		if err := install.ResetPackage(e.Services, filepath.Join(root, "apps"), filepath.Join(root, "shims-meta"), pkgName+"@"+activateVer); err != nil {
+			return createErrorResult(e, &req.Request, req.Name, fmt.Errorf("reset shims after uninstall: %w", err), "Uninstall failed", start)
+		}
 	}
 
 	runtime.ReportProgress(reporter, PhaseComplete, req.Name, StatusSuccess, 100, message.ProgressUninstallComplete, nil, 0, 0)
@@ -133,7 +143,7 @@ func (e *Engine) Uninstall(ctx context.Context, req *UninstallRequest, reporter 
 
 // Search searches for packages across buckets.
 func (e *Engine) Search(ctx context.Context, req *SearchRequest, reporter ProgressReporter) ([]*Package, error) {
-	if err := runtime.WaitSearchIndexReady(e.Engine, ctx); err != nil {
+	if err := runtime.WaitSearchIndexReady(e.Services, ctx); err != nil {
 		return nil, err
 	}
 
@@ -154,12 +164,12 @@ func (e *Engine) Search(ctx context.Context, req *SearchRequest, reporter Progre
 		}
 	}
 
-	return catalog.SearchPackages(e.Engine, req.Query, bucketsToSearch, req.Limit), nil
+	return catalog.SearchPackages(e.Services, req.Query, bucketsToSearch, req.Limit), nil
 }
 
 // ResolveInstallRef resolves an unqualified package name to bucket/pkg when needed.
 func (e *Engine) ResolveInstallRef(ctx context.Context, pkgRef string) (string, error) {
-	return catalog.ResolveInstallRef(e.Engine, ctx, pkgRef)
+	return catalog.ResolveInstallRef(e.Services, ctx, pkgRef)
 }
 
 // IsInstallResolveNotice reports user-facing resolve/manifest errors.
@@ -174,47 +184,47 @@ func FormatInstallResolveNotice(err error) string {
 
 // SearchIndexReady reports whether the initial bucket manifest index build has finished.
 func (e *Engine) SearchIndexReady() bool {
-	return runtime.SearchIndexReady(e.Engine)
+	return runtime.SearchIndexReady(e.Services)
 }
 
 // PackageCountsByBucket returns indexed package counts per installed bucket.
 func (e *Engine) PackageCountsByBucket() map[string]int {
-	return catalog.PackageCountsByBucket(e.Engine)
+	return catalog.PackageCountsByBucket(e.Services)
 }
 
 // CountAvailablePackages returns indexed packages across all buckets.
 func (e *Engine) CountAvailablePackages(hideDeprecated bool) int {
-	return catalog.CountAvailablePackages(e.Engine, hideDeprecated)
+	return catalog.CountAvailablePackages(e.Services, hideDeprecated)
 }
 
 // CatalogBuckets returns installed buckets with indexed package counts.
 func (e *Engine) CatalogBuckets(q CatalogBucketsQuery) []CatalogBucketSummary {
-	return catalog.CatalogBuckets(e.Engine, q)
+	return catalog.CatalogBuckets(e.Services, q)
 }
 
 // ListCatalogPackages returns paginated packages from the search index.
 func (e *Engine) ListCatalogPackages(q CatalogPackageQuery) (*CatalogPackagePage, error) {
-	return catalog.ListCatalogPackages(e.Engine, q)
+	return catalog.ListCatalogPackages(e.Services, q)
 }
 
 // ResolveCatalogPackages resolves package names for recipe cards.
 func (e *Engine) ResolveCatalogPackages(requests []CatalogResolveRequest) []*Package {
-	return catalog.ResolveCatalogPackages(e.Engine, requests)
+	return catalog.ResolveCatalogPackages(e.Services, requests)
 }
 
 // HideCatalogPackage hides a package from catalog browse/search results.
 func (e *Engine) HideCatalogPackage(pkgRef string) error {
-	return catalog.HideCatalogPackage(e.Engine, pkgRef)
+	return catalog.HideCatalogPackage(e.Services, pkgRef)
 }
 
 // LoadSearchIndexBucket immediately indexes a single bucket.
 func (e *Engine) LoadSearchIndexBucket(name string) {
-	runtime.LoadSearchIndexBucket(e.Engine, name)
+	runtime.LoadSearchIndexBucket(e.Services, name)
 }
 
 // RemoveSearchIndexBucket drops all indexed packages for a bucket.
 func (e *Engine) RemoveSearchIndexBucket(name string) {
-	runtime.RemoveSearchIndexBucket(e.Engine, name)
+	runtime.RemoveSearchIndexBucket(e.Services, name)
 }
 
 // BucketManifestPaths lists package manifest JSON paths under a Scoop bucket repo.

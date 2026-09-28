@@ -31,12 +31,12 @@ func TestApplyManifestDownloadOverrides_requiresFreshBaseHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}}}
-	if err := override.SetManifestDownloadOverride(e.Engine, "lemon/1key.run",
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}}}
+	if err := override.SetManifestDownloadOverride(e.Services, "lemon/1key.run",
 		[]string{"https://example.com/new.exe"}, nil, baseHash); err != nil {
 		t.Fatal(err)
 	}
-	out, err := override.ApplyManifestOverrides(e.Engine, "lemon/1key.run", manifestPath, m, "", nil)
+	out, err := override.ApplyManifestOverrides(e.Services, "lemon/1key.run", manifestPath, m, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestApplyManifestDownloadOverrides_requiresFreshBaseHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out2, err := override.ApplyManifestOverrides(e.Engine, "lemon/1key.run", manifestPath, m2, "", nil)
+	out2, err := override.ApplyManifestOverrides(e.Services, "lemon/1key.run", manifestPath, m2, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

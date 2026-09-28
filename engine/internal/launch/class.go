@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gluestick-sh/core/engine/internal/install"
 	"github.com/gluestick-sh/core/engine/internal/runtime"
 	"github.com/gluestick-sh/core/manifest"
 	"github.com/gluestick-sh/core/message"
+	"github.com/gluestick-sh/core/shim"
 )
 
 var errLaunchNotOpenable = errors.New(message.FormatEN(message.ErrLaunchNotOpenable, nil))
@@ -54,7 +54,7 @@ func (k LaunchKind) Openable() bool {
 
 // EffectiveLaunchKind returns the launch kind for absPath, preferring a user
 // override from the launch index before falling back to file-type detection.
-func EffectiveLaunchKind(e *runtime.Engine, pkgName, installDir, absPath string, m *manifest.Manifest, source LaunchSource) LaunchKind {
+func EffectiveLaunchKind(e *runtime.Services, pkgName, installDir, absPath string, m *manifest.Manifest, source LaunchSource) LaunchKind {
 	absPath = filepath.Clean(absPath)
 	rel, err := filepath.Rel(installDir, absPath)
 	if err != nil || strings.HasPrefix(rel, "..") {
@@ -67,11 +67,11 @@ func EffectiveLaunchKind(e *runtime.Engine, pkgName, installDir, absPath string,
 }
 
 // AutoLaunchKind picks a default open mode from file type only. Hidden (skip) is user-controlled.
-func AutoLaunchKind(e *runtime.Engine, installDir, absPath string, m *manifest.Manifest, source LaunchSource) LaunchKind {
+func AutoLaunchKind(e *runtime.Services, installDir, absPath string, m *manifest.Manifest, source LaunchSource) LaunchKind {
 	return autoLaunchKind(e, installDir, absPath, m, source)
 }
 
-func autoLaunchKind(e *runtime.Engine, installDir, absPath string, m *manifest.Manifest, source LaunchSource) LaunchKind {
+func autoLaunchKind(e *runtime.Services, installDir, absPath string, m *manifest.Manifest, source LaunchSource) LaunchKind {
 	_ = installDir
 	_ = m
 	_ = source
@@ -110,11 +110,11 @@ func launchSourceForPath(installDir, absPath string, m *manifest.Manifest) Launc
 		}
 	}
 	for _, pattern := range m.Binaries() {
-		exe, _, _ := install.ParseBinPatternParts(pattern)
+		exe, _, _ := shim.ParseBinPatternParts(pattern)
 		if exe == "" {
 			continue
 		}
-		for _, candidate := range install.ResolveBinCandidates(installDir, exe, "") {
+		for _, candidate := range shim.ResolveBinCandidates(installDir, exe, "") {
 			if filepath.Clean(candidate) == clean {
 				return LaunchSourceBin
 			}

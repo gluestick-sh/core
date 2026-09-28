@@ -125,7 +125,7 @@ func (e *Engine) listInstalledPackages(ctx context.Context,
 		pkg.ExternallyUpdated = detected.ExternallyUpdated
 
 		if opts.Detailed {
-			shims, err := install.GetShimsForPackage(e.Engine, name, version)
+			shims, err := install.GetShimsForPackage(e.Services, name, version)
 			if err == nil {
 				if pkg.Manifest == nil {
 					pkg.Manifest = &ManifestInfo{}

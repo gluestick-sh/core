@@ -18,7 +18,7 @@ func TestResolveManifestOverrides_requestURLOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &runtime.Engine{Config: &etypes.EngineConfig{RootDir: t.TempDir()}}
+	e := &runtime.Services{Config: &etypes.EngineConfig{RootDir: t.TempDir()}}
 	req := &etypes.InstallRequest{
 		DownloadURLOverrides: []string{"https://example.com/req.zip"},
 		DownloadHashOverrides: []string{"reqhash"},

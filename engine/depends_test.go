@@ -40,13 +40,13 @@ func TestPlanInstall_missingDepends(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := runtime.NewEngine(&EngineConfig{RootDir: root})
+	r, err := runtime.NewServices(&EngineConfig{RootDir: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: r}
+	e := &Engine{Services: r}
 	defer e.Close()
-	runtime.RebuildSearchIndex(e.Engine)
+	runtime.RebuildSearchIndex(e.Services)
 
 	plan, err := e.PlanInstall(context.Background(), "app")
 	if err != nil {
@@ -74,13 +74,13 @@ func TestPlanInstall_dependsPreAndPost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := runtime.NewEngine(&EngineConfig{RootDir: root})
+	r, err := runtime.NewServices(&EngineConfig{RootDir: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: r}
+	e := &Engine{Services: r}
 	defer e.Close()
-	runtime.RebuildSearchIndex(e.Engine)
+	runtime.RebuildSearchIndex(e.Services)
 
 	plan, err := e.PlanInstall(context.Background(), "app")
 	if err != nil {

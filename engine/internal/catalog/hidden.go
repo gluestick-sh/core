@@ -5,7 +5,7 @@ import (
 	"github.com/gluestick-sh/core/engine/internal/runtime"
 )
 
-func hiddenCatalogPackages(e *runtime.Engine) map[string]struct{} {
+func hiddenCatalogPackages(e *runtime.Services) map[string]struct{} {
 	if e == nil || e.Config == nil || e.Config.RootDir == "" {
 		return nil
 	}
@@ -17,7 +17,7 @@ func hiddenCatalogPackages(e *runtime.Engine) map[string]struct{} {
 }
 
 // HideCatalogPackage hides a package from catalog browse/search results.
-func HideCatalogPackage(e *runtime.Engine, pkgRef string) error {
+func HideCatalogPackage(e *runtime.Services, pkgRef string) error {
 	if e == nil || e.Config == nil {
 		return nil
 	}

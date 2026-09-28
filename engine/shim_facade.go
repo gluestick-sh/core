@@ -8,7 +8,7 @@ import (
 
 // RemoveShimsForPackage removes shims belonging to pkgName.
 func RemoveShimsForPackage(shimMgr *shim.Manager, shimsMetaDir, appsDir, pkgName string) ([]string, error) {
-	return install.RemoveShimsForPackage(shimMgr, shimsMetaDir, appsDir, pkgName)
+	return shim.RemoveShimsForPackage(shimMgr, shimsMetaDir, appsDir, pkgName)
 }
 
 // CreatePackageShims registers PATH shims for m.

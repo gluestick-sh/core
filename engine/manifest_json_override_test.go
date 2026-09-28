@@ -37,8 +37,8 @@ func TestManifestJSONOverrideRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}}}
-	state, err := override.ResolveManifestOverrides(e.Engine, "main/acon", manifestPath, bucketM, "", nil)
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}}}
+	state, err := override.ResolveManifestOverrides(e.Services, "main/acon", manifestPath, bucketM, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestManifestJSONOverrideRoundTrip(t *testing.T) {
 	if err := os.WriteFile(manifestPath, []byte(`{"version":"3.0.0","url":"https://example.com/v3.zip","hash":"zzz"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	state, err = override.ResolveManifestOverrides(e.Engine, "main/acon", manifestPath, bucketM, "", nil)
+	state, err = override.ResolveManifestOverrides(e.Services, "main/acon", manifestPath, bucketM, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestSetManifestJSONOverrideClearsWhenUnchanged(t *testing.T) {
 	if err := os.WriteFile(manifestPath, []byte(raw), 0644); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}}}
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}}}
 	if err := e.SetManifestJSONOverride("main/acon", manifestPath, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestSetManifestJSONOverrideRejectsInvalidJSON(t *testing.T) {
 	if err := os.WriteFile(manifestPath, []byte(`{"version":"1.0.0","url":"https://example.com/a.zip","hash":"abc"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}}}
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}}}
 	err := e.SetManifestJSONOverride("main/acon", manifestPath, `{not json`)
 	if err == nil || !strings.Contains(err.Error(), "invalid manifest JSON") {
 		t.Fatalf("err = %v", err)

@@ -3,6 +3,7 @@
 package uninstall
 
 import (
+	"github.com/gluestick-sh/core/shim"
 	"context"
 	"fmt"
 	"os"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/gluestick-sh/core/apps"
 	"github.com/gluestick-sh/core/cache"
-	"github.com/gluestick-sh/core/engine/internal/install"
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"github.com/gluestick-sh/core/engine/internal/runtime"
 	etypes "github.com/gluestick-sh/core/engine/types"
 	"github.com/gluestick-sh/core/humanize"
@@ -36,13 +37,13 @@ import (
 // Returns:
 //   - The version that was uninstalled
 //   - Error if uninstallation fails
-func PackageFull(e *runtime.Engine,
+func PackageFull(e *runtime.Services,
 	ctx context.Context,
 	pkgRef string,
 	req *etypes.UninstallRequest,
-) (string, error) {
+) (removedVer string, activateVer string, err error) {
 	if err := runtime.ContextCanceled(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	root := e.Config.RootDir
 	appsDir := filepath.Join(root, "apps")
@@ -53,22 +54,22 @@ func PackageFull(e *runtime.Engine,
 
 	versions, err := apps.ListVersions(pkgRoot)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(versions) == 0 {
 		entry, cacheOk := e.Cache.Get(pkgName)
-		if cacheOk || install.HasShimsForPackage(shimsMetaDir, pkgName) {
+		if cacheOk || shim.HasShimsForPackage(shimsMetaDir, pkgName) {
 			version := ""
 			if cacheOk {
 				version = entry.Version
 			}
 			verbose.Progressf("Cleaning up %s (no install files on disk)...\n", pkgName)
 			if err := finishPackageRemoved(e, appsDir, shimsMetaDir, pkgName, pkgRoot, version, req.Purge); err != nil {
-				return "", err
+				return "", "", err
 			}
-			return version, nil
+			return version, "", nil
 		}
-		return "", fmt.Errorf("%s", runtime.FormatNotInstalled(pkgName))
+		return "", "", fmt.Errorf("%s", runtime.FormatNotInstalled(pkgName))
 	}
 
 	if targetVer == "" {
@@ -82,7 +83,7 @@ func PackageFull(e *runtime.Engine,
 	}
 
 	if !runtime.VersionDirInstalled(root, pkgName, targetVer) {
-		return "", fmt.Errorf("%s@%s is not installed", pkgName, targetVer)
+		return "", "", fmt.Errorf("%s@%s is not installed", pkgName, targetVer)
 	}
 
 	currentVer, _ := apps.ReadCurrent(pkgRoot)
@@ -101,28 +102,28 @@ func PackageFull(e *runtime.Engine,
 	m, bucketName, installArch := loadUninstallManifestContext(e, verDir, pkgName)
 	if m != nil {
 		if err := runManifestUninstallHooks(e, ctx, bucketName, pkgName, verDir, targetVer, installArch, m); err != nil {
-			return "", err
+			return "", "", err
 		}
-		if err := install.RemovePackageShortcuts(m, installArch); err != nil {
+		if err := lifecycle.RemovePackageShortcuts(m, installArch); err != nil {
 			verbose.Progressf("  Warning: failed to remove shortcuts: %v\n", err)
 		}
 	}
 
 	if err := runtime.ContextCanceled(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	releaseInstallDirFileLocks(verDir)
 
 	if err := checkProcessesBlockingUninstall(pkgRoot, verDir, targetVer, pkgName); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if m != nil {
 		persistEntries := m.PersistEntriesForInstall(installArch)
 		if len(persistEntries) > 0 {
 			persistDir := filepath.Join(root, "persist", pkgName)
-			if err := install.SavePersistOnUninstall(verDir, persistDir, persistEntries); err != nil {
-				return "", fmt.Errorf("save persist data: %w", err)
+			if err := lifecycle.SavePersistOnUninstall(verDir, persistDir, persistEntries); err != nil {
+				return "", "", fmt.Errorf("save persist data: %w", err)
 			}
 		}
 	}
@@ -130,14 +131,14 @@ func PackageFull(e *runtime.Engine,
 	removedCurrent := false
 	if wasActive {
 		if err := apps.RemoveCurrent(pkgRoot); err != nil {
-			return "", fmt.Errorf("remove current link: %w", err)
+			return "", "", fmt.Errorf("remove current link: %w", err)
 		}
 		removedCurrent = true
 	}
 	if err := runtime.ContextCanceled(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
-	if err := install.RemoveAll(verDir); err != nil {
+	if err := lifecycle.RemoveAll(verDir); err != nil {
 		if removedCurrent {
 			if linkErr := apps.LinkCurrent(pkgRoot, targetVer); linkErr != nil {
 				verbose.Progressf("  Warning: failed to restore current link after uninstall error: %v\n", linkErr)
@@ -148,12 +149,12 @@ func PackageFull(e *runtime.Engine,
 			blockDirs = append(blockDirs, filepath.Join(pkgRoot, apps.CurrentLinkName))
 		}
 		if procs, _ := procutil.ProcessesBlockingUninstall(blockDirs...); len(procs) > 0 {
-			return "", processesBlockingUninstallError(pkgName, targetVer, procs)
+			return "", "", processesBlockingUninstallError(pkgName, targetVer, procs)
 		}
 		if isAccessDeniedRemoveErr(err) {
-			return "", fmt.Errorf("remove version dir: %w\n%s", err, accessDeniedUninstallHint(pkgName))
+			return "", "", fmt.Errorf("remove version dir: %w\n%s", err, accessDeniedUninstallHint(pkgName))
 		}
-		return "", fmt.Errorf("remove version dir: %w", err)
+		return "", "", fmt.Errorf("remove version dir: %w", err)
 	}
 
 	if m != nil {
@@ -164,33 +165,34 @@ func PackageFull(e *runtime.Engine,
 
 	remaining, err := apps.ListVersions(pkgRoot)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if len(remaining) == 0 {
 		if m != nil {
-			if err := install.RemovePackageEnvSet(m, installArch); err != nil {
+			if err := lifecycle.RemovePackageEnvSet(m, installArch); err != nil {
 				verbose.Progressf("  Warning: failed to remove env_set: %v\n", err)
 			}
 		}
 		if err := finishPackageRemoved(e, appsDir, shimsMetaDir, pkgName, pkgRoot, targetVer, req.Purge); err != nil {
-			return "", err
+			return "", "", err
 		}
-		return targetVer, nil
+		return targetVer, "", nil
 	}
 
 	if wasActive {
 		newVer, ok := apps.PickDefaultVersion(pkgRoot)
 		if !ok {
-			return "", fmt.Errorf("no version left to activate for %s", pkgName)
+			return "", "", fmt.Errorf("no version left to activate for %s", pkgName)
 		}
 		verbose.Progressf("  Switching current => %s\n", newVer)
 		if err := apps.LinkCurrent(pkgRoot, newVer); err != nil {
-			return "", fmt.Errorf("link current: %w", err)
+			return "", "", fmt.Errorf("link current: %w", err)
 		}
-		if err := install.ResetPackage(e, appsDir, shimsMetaDir, pkgName+"@"+newVer); err != nil {
-			return "", fmt.Errorf("reset shims: %w", err)
-		}
+		// The caller (engine facade) relinks shims/shortcuts for the newly
+		// active version via install.ResetPackage; uninstall itself never
+		// reaches into install.
+		activateVer = newVer
 	} else {
 		verbose.Progressf("  %s is not the active version; shims unchanged\n", targetVer)
 	}
@@ -199,8 +201,8 @@ func PackageFull(e *runtime.Engine,
 		verbose.Progressf("  Cache kept (other versions installed; purge after removing all versions)\n")
 	}
 
-	verbose.Progressf("  %s %s@%s uninstalled\n", install.SuccessMark(), pkgName, targetVer)
-	return targetVer, nil
+	verbose.Progressf("  %s %s@%s uninstalled\n", verbose.SuccessMark(), pkgName, targetVer)
+	return targetVer, activateVer, nil
 }
 
 // finishPackageRemoved performs final cleanup after the last version is removed.
@@ -214,21 +216,21 @@ func PackageFull(e *runtime.Engine,
 //   - version: Version being removed
 //   - purge: If true, remove cached blobs
 // Returns error if cleanup fails.
-func finishPackageRemoved(e *runtime.Engine,
+func finishPackageRemoved(e *runtime.Services,
 	appsDir, shimsMetaDir, pkgName, pkgRoot, version string,
 	purge bool,
 ) error {
-	removedShims, err := install.RemoveShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName)
+	removedShims, err := shim.RemoveShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName)
 	if err != nil {
 		verbose.Progressf("    Warning: failed to remove shims: %v\n", err)
 	} else if len(removedShims) > 0 {
 		verbose.Progressf("  Removing shims...\n")
 		for _, shimName := range removedShims {
-			verbose.Progressf("    %s %s\n", install.SuccessMark(), shimName)
+			verbose.Progressf("    %s %s\n", verbose.SuccessMark(), shimName)
 		}
 	}
 
-	if err := install.RemoveAll(pkgRoot); err != nil && !os.IsNotExist(err) {
+	if err := lifecycle.RemoveAll(pkgRoot); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove install directory: %w", err)
 	}
 
@@ -242,7 +244,7 @@ func finishPackageRemoved(e *runtime.Engine,
 		} else {
 			verbose.Progressf("  No cache index entry to purge\n")
 		}
-		verbose.Progressf("  %s %s@%s uninstalled and cache purged\n", install.SuccessMark(), pkgName, version)
+		verbose.Progressf("  %s %s@%s uninstalled and cache purged\n", verbose.SuccessMark(), pkgName, version)
 	} else {
 		if _, ok := e.Cache.GetInstalled(pkgName); ok {
 			if err := e.Cache.RemoveInstalled(pkgName); err != nil {
@@ -257,7 +259,7 @@ func finishPackageRemoved(e *runtime.Engine,
 		} else {
 			verbose.Progressf("  Install removed (no content cache entry)\n")
 		}
-		verbose.Progressf("  %s %s@%s uninstalled\n", install.SuccessMark(), pkgName, version)
+		verbose.Progressf("  %s %s@%s uninstalled\n", verbose.SuccessMark(), pkgName, version)
 	}
 	return nil
 }

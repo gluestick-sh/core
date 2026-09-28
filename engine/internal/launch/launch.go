@@ -10,11 +10,11 @@ import (
 	"strings"
 
 	"github.com/gluestick-sh/core/apps"
-	"github.com/gluestick-sh/core/engine/internal/install"
 	"github.com/gluestick-sh/core/engine/internal/runtime"
 	etypes "github.com/gluestick-sh/core/engine/types"
 	"github.com/gluestick-sh/core/manifest"
 	"github.com/gluestick-sh/core/message"
+	"github.com/gluestick-sh/core/shim"
 )
 
 // LaunchTarget is a runnable file the user can open.
@@ -36,7 +36,7 @@ type LaunchCandidate struct {
 }
 
 // ListLaunchCandidates returns all discovered executables and effective launch kinds.
-func ListLaunchCandidates(e *runtime.Engine, pkgName string) ([]LaunchCandidate, error) {
+func ListLaunchCandidates(e *runtime.Services, pkgName string) ([]LaunchCandidate, error) {
 	installDir, m, err := launchManifestContext(e, pkgName)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func ListLaunchCandidates(e *runtime.Engine, pkgName string) ([]LaunchCandidate,
 }
 
 // ListLaunchTargets returns executables the user can open (not marked hidden).
-func ListLaunchTargets(e *runtime.Engine, pkgName string) ([]LaunchTarget, error) {
+func ListLaunchTargets(e *runtime.Services, pkgName string) ([]LaunchTarget, error) {
 	candidates, err := ListLaunchCandidates(e, pkgName)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func ListLaunchTargets(e *runtime.Engine, pkgName string) ([]LaunchTarget, error
 }
 
 // OpenLaunchTarget runs an exe/bat/cmd that belongs to pkgName.
-func OpenLaunchTarget(e *runtime.Engine, pkgName, absPath string) error {
+func OpenLaunchTarget(e *runtime.Services, pkgName, absPath string) error {
 	installDir, m, err := launchManifestContext(e, pkgName)
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func OpenLaunchTarget(e *runtime.Engine, pkgName, absPath string) error {
 
 // ResolveLaunchAbsPath accepts a path under the active install dir, or a stale path from
 // another installed version (e.g. UI cached before version switch).
-func ResolveLaunchAbsPath(e *runtime.Engine, pkgName, installDir, absPath string) (string, error) {
+func ResolveLaunchAbsPath(e *runtime.Services, pkgName, installDir, absPath string) (string, error) {
 	clean := filepath.Clean(absPath)
 	rel, err := filepath.Rel(installDir, clean)
 	if err == nil && !strings.HasPrefix(rel, "..") {
@@ -175,7 +175,7 @@ func relPathWithinPackageVersion(pkgName, absPath string) string {
 //   - installDir: Installation directory path
 //   - m: Package manifest (may be nil)
 //   - error: Error if installation directory cannot be determined
-func launchManifestContext(e *runtime.Engine, pkgName string) (installDir string, m *manifest.Manifest, err error) {
+func launchManifestContext(e *runtime.Services, pkgName string) (installDir string, m *manifest.Manifest, err error) {
 	installDir, err = packageInstallDir(e, pkgName)
 	if err != nil {
 		return "", nil, err
@@ -200,7 +200,7 @@ func launchManifestContext(e *runtime.Engine, pkgName string) (installDir string
 //   - installDir: Installation directory
 //   - m: Package manifest (may be nil)
 // Returns a list of discovered launch entries with labels and sources.
-func collectLaunchPathEntries(e *runtime.Engine, pkgName, installDir string, m *manifest.Manifest) []launchPathEntry {
+func collectLaunchPathEntries(e *runtime.Services, pkgName, installDir string, m *manifest.Manifest) []launchPathEntry {
 	seen := make(map[string]struct{})
 	var entries []launchPathEntry
 	add := func(absPath, label string, source LaunchSource) {
@@ -238,11 +238,11 @@ func collectLaunchPathEntries(e *runtime.Engine, pkgName, installDir string, m *
 			manifestResolved += len(entries) - before
 		}
 		for _, binPattern := range m.LaunchBinaries() {
-			binName, alias := install.ParseBinPattern(binPattern)
+			binName, alias := shim.ParseBinPattern(binPattern)
 			if binName == "" {
 				continue
 			}
-			for _, candidate := range install.ResolveBinCandidates(installDir, binName, "") {
+			for _, candidate := range shim.ResolveBinCandidates(installDir, binName, "") {
 				before := len(entries)
 				add(candidate, alias, LaunchSourceBin)
 				manifestResolved += len(entries) - before
@@ -266,7 +266,7 @@ func collectLaunchPathEntries(e *runtime.Engine, pkgName, installDir string, m *
 //   - pkgName: Package name
 //   - installDir: Installation directory
 //   - add: Callback function to add entries
-func appendLaunchIndexEntries(e *runtime.Engine,
+func appendLaunchIndexEntries(e *runtime.Services,
 	pkgName, installDir string,
 	add func(absPath, label string, source LaunchSource),
 ) {
@@ -302,7 +302,7 @@ func appendLaunchIndexEntries(e *runtime.Engine,
 //   - maxDepth: Maximum depth to scan (0 = unlimited)
 //   - seen: Set of already-seen paths (to avoid duplicates)
 //   - entries: Slice to append discovered entries to
-func scanLaunchPathEntries(e *runtime.Engine,
+func scanLaunchPathEntries(e *runtime.Services,
 	dir, installDir string,
 	depth, maxDepth int,
 	seen map[string]struct{},
@@ -345,7 +345,7 @@ func scanLaunchPathEntries(e *runtime.Engine,
 
 // PackageIconPath returns the executable whose embedded icon should represent the package.
 // Prefers shortcut targets, then manifest bins, then scanned files; GUI exe wins within each tier.
-func PackageIconPath(e *runtime.Engine, pkgName string) (string, error) {
+func PackageIconPath(e *runtime.Services, pkgName string) (string, error) {
 	installDir, m, err := launchManifestContext(e, pkgName)
 	if err != nil {
 		return "", err
@@ -381,7 +381,7 @@ func PackageIconPath(e *runtime.Engine, pkgName string) (string, error) {
 }
 
 // PackageInstallDir returns the active install directory for pkgName.
-func PackageInstallDir(e *runtime.Engine, pkgName string) (string, error) {
+func PackageInstallDir(e *runtime.Services, pkgName string) (string, error) {
 	return packageInstallDir(e, pkgName)
 }
 
@@ -394,7 +394,7 @@ func PackageInstallDir(e *runtime.Engine, pkgName string) (string, error) {
 // Returns:
 //   - Full path to the active installation directory
 //   - Error if no active version exists
-func packageInstallDir(e *runtime.Engine, pkgName string) (string, error) {
+func packageInstallDir(e *runtime.Services, pkgName string) (string, error) {
 	pkgRoot, version, err := apps.CurrentInstalledPath(e.Config.RootDir, pkgName)
 	if err != nil {
 		return "", err
@@ -416,7 +416,7 @@ func packageInstallDir(e *runtime.Engine, pkgName string) (string, error) {
 // Returns:
 //   - bucket: Bucket name where the package was found
 //   - info: Package manifest information (may be nil)
-func installedPackageDetails(e *runtime.Engine, name, version string) (bucket string, info *etypes.ManifestInfo) {
+func installedPackageDetails(e *runtime.Services, name, version string) (bucket string, info *etypes.ManifestInfo) {
 	if e == nil || e.Config == nil {
 		return "", nil
 	}

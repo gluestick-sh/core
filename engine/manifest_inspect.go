@@ -42,7 +42,7 @@ func (e *Engine) InspectPackageManifest(ctx context.Context, pkgRef string) (*In
 		return nil, err
 	}
 	lookupRef := runtime.ManifestLookupRef(resolved)
-	if err := catalog.EnsureBucketForInstall(e.Engine, ctx, lookupRef, nil); err != nil {
+	if err := catalog.EnsureBucketForInstall(e.Services, ctx, lookupRef, nil); err != nil {
 		return nil, err
 	}
 	manifestPath, m, err := e.BucketRegistry.GetManifestPath(lookupRef)
@@ -60,7 +60,7 @@ func (e *Engine) buildPlanManifestInspect(pkgRef, manifestPath string,
 	m *manifest.Manifest,
 ) (InstallManifestInfo, error) {
 	installArch := m.SelectedArchitecture()
-	state, err := override.ResolveManifestOverrides(e.Engine, pkgRef, manifestPath, m, installArch, nil)
+	state, err := override.ResolveManifestOverrides(e.Services, pkgRef, manifestPath, m, installArch, nil)
 	if err != nil {
 		return InstallManifestInfo{}, err
 	}

@@ -86,7 +86,7 @@ func manifestTreeHasJSON(dir string) bool {
 
 // EnsureBucketForInstall ensures the bucket referenced by pkgRef is available.
 // If buckets is non-empty, only buckets in that list are allowed for install.
-func EnsureBucketForInstall(e *runtime.Engine, ctx context.Context, pkgRef string, buckets []string) error {
+func EnsureBucketForInstall(e *runtime.Services, ctx context.Context, pkgRef string, buckets []string) error {
 	ref := pkgRef
 	if at := strings.LastIndex(ref, "@"); at >= 0 {
 		ref = ref[:at]
@@ -155,7 +155,7 @@ func EnsureBucketForInstall(e *runtime.Engine, ctx context.Context, pkgRef strin
 }
 
 // bucketAlreadyIndexed checks if a bucket is already loaded in the search index.
-func bucketAlreadyIndexed(e *runtime.Engine, bucketName string) bool {
+func bucketAlreadyIndexed(e *runtime.Services, bucketName string) bool {
 	if e == nil || e.BucketRegistry == nil {
 		return false
 	}
@@ -176,7 +176,7 @@ func InstallRefFromMatch(m manifest.Match) string {
 // findExactPackages finds packages by exact name match in the search index.
 // findExactPackages finds packages by exact name match in the search index.
 // Returns a slice of manifest matches for the given package name.
-func findExactPackages(e *runtime.Engine, pkgName string) []manifest.Match {
+func findExactPackages(e *runtime.Services, pkgName string) []manifest.Match {
 	if e.SearchIdx == nil {
 		return nil
 	}
@@ -225,7 +225,7 @@ func isUnqualifiedRef(pkgRef string) bool {
 }
 
 // ResolveInstallRef resolves an unqualified package name to bucket/pkg when needed.
-func ResolveInstallRef(e *runtime.Engine, ctx context.Context, pkgRef string) (string, error) {
+func ResolveInstallRef(e *runtime.Services, ctx context.Context, pkgRef string) (string, error) {
 	ref := strings.TrimSpace(pkgRef)
 	if ref == "" {
 		return "", fmt.Errorf("empty package name")
@@ -267,7 +267,7 @@ func ResolveInstallRef(e *runtime.Engine, ctx context.Context, pkgRef string) (s
 }
 
 // WrapManifestNotFound augments manifest-not-found errors with bucket suggestions.
-func WrapManifestNotFound(e *runtime.Engine, pkgRef string, err error) error {
+func WrapManifestNotFound(e *runtime.Services, pkgRef string, err error) error {
 	if !isUnqualifiedRef(pkgRef) {
 		return fmt.Errorf("find manifest: %w", err)
 	}
@@ -286,7 +286,7 @@ func WrapManifestNotFound(e *runtime.Engine, pkgRef string, err error) error {
 }
 
 // ValidateInstallTarget resolves pkgRef and ensures its manifest exists before depends/install.
-func ValidateInstallTarget(e *runtime.Engine, ctx context.Context, req *etypes.InstallRequest) error {
+func ValidateInstallTarget(e *runtime.Services, ctx context.Context, req *etypes.InstallRequest) error {
 	resolved, err := ResolveInstallRef(e, ctx, req.Name)
 	if err != nil {
 		if isUnqualifiedRef(req.Name) {
@@ -338,7 +338,7 @@ func FormatInstallResolveNotice(err error) string {
 }
 
 // SearchPackages searches the catalog index.
-func SearchPackages(e *runtime.Engine, query string, buckets []string, limit int) []*etypes.Package {
+func SearchPackages(e *runtime.Services, query string, buckets []string, limit int) []*etypes.Package {
 	if e.SearchIdx == nil {
 		return nil
 	}
@@ -360,7 +360,7 @@ func SearchPackages(e *runtime.Engine, query string, buckets []string, limit int
 }
 
 // PackageCountsByBucket returns indexed package counts per installed bucket.
-func PackageCountsByBucket(e *runtime.Engine) map[string]int {
+func PackageCountsByBucket(e *runtime.Services) map[string]int {
 	if e.SearchIdx == nil {
 		return nil
 	}
@@ -368,7 +368,7 @@ func PackageCountsByBucket(e *runtime.Engine) map[string]int {
 }
 
 // CountAvailablePackages returns indexed packages across all buckets.
-func CountAvailablePackages(e *runtime.Engine, hideDeprecated bool) int {
+func CountAvailablePackages(e *runtime.Services, hideDeprecated bool) int {
 	if e.SearchIdx == nil {
 		return 0
 	}
@@ -401,14 +401,14 @@ func ManifestMayNeedInnounp(m *manifest.Manifest) bool {
 }
 
 // CatalogNeedsInnounp reports whether any indexed manifest needs innounp.
-func CatalogNeedsInnounp(e *runtime.Engine) bool {
+func CatalogNeedsInnounp(e *runtime.Services) bool {
 	return catalogHasMatchingManifest(e, ManifestMayNeedInnounp)
 }
 
 // catalogHasMatchingManifest checks if any manifest in the catalog matches the given predicate.
 // catalogHasMatchingManifest checks if any manifest in the catalog matches the given predicate.
 // Iterates through all buckets and manifest paths, returning true if any manifest satisfies the match function.
-func catalogHasMatchingManifest(e *runtime.Engine, match func(*manifest.Manifest) bool) bool {
+func catalogHasMatchingManifest(e *runtime.Services, match func(*manifest.Manifest) bool) bool {
 	if e == nil || e.BucketRegistry == nil || match == nil {
 		return false
 	}

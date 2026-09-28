@@ -44,7 +44,7 @@ func toManifestOverrideState(s manifestOverrideState) ManifestOverrideState {
 }
 
 // ResolveManifestOverrides returns the effective manifest and override flags.
-func ResolveManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, bucketM *manifest.Manifest, installArch string, req *etypes.InstallRequest) (ManifestOverrideState, error) {
+func ResolveManifestOverrides(e *runtime.Services, pkgRef, manifestPath string, bucketM *manifest.Manifest, installArch string, req *etypes.InstallRequest) (ManifestOverrideState, error) {
 	state, err := resolveManifestOverrides(e, pkgRef, manifestPath, bucketM, installArch, req)
 	if err != nil {
 		return ManifestOverrideState{}, err
@@ -52,7 +52,7 @@ func ResolveManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, bu
 	return toManifestOverrideState(state), nil
 }
 
-func manifestJSONOverride(e *runtime.Engine, pkgRef string) (item config.ManifestJSONOverride, ok bool) {
+func manifestJSONOverride(e *runtime.Services, pkgRef string) (item config.ManifestJSONOverride, ok bool) {
 	if e == nil || e.Config == nil || e.Config.RootDir == "" {
 		return config.ManifestJSONOverride{}, false
 	}
@@ -67,7 +67,7 @@ func manifestJSONOverride(e *runtime.Engine, pkgRef string) (item config.Manifes
 	return item, true
 }
 
-func resolveManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, bucketM *manifest.Manifest, installArch string, req *etypes.InstallRequest) (manifestOverrideState, error) {
+func resolveManifestOverrides(e *runtime.Services, pkgRef, manifestPath string, bucketM *manifest.Manifest, installArch string, req *etypes.InstallRequest) (manifestOverrideState, error) {
 	state := manifestOverrideState{effectiveM: bucketM}
 	if bucketM == nil {
 		return state, nil
@@ -109,7 +109,7 @@ func resolveManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, bu
 }
 
 // ApplyManifestOverrides returns the effective manifest after config/request overrides.
-func ApplyManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, m *manifest.Manifest, installArch string, req *etypes.InstallRequest) (*manifest.Manifest, error) {
+func ApplyManifestOverrides(e *runtime.Services, pkgRef, manifestPath string, m *manifest.Manifest, installArch string, req *etypes.InstallRequest) (*manifest.Manifest, error) {
 	state, err := resolveManifestOverrides(e, pkgRef, manifestPath, m, installArch, req)
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func ApplyManifestOverrides(e *runtime.Engine, pkgRef, manifestPath string, m *m
 	return state.effectiveM, nil
 }
 
-func loadManifestDownloadOverride(e *runtime.Engine, pkgRef string) (config.ManifestDownloadOverride, bool) {
+func loadManifestDownloadOverride(e *runtime.Services, pkgRef string) (config.ManifestDownloadOverride, bool) {
 	if e == nil || e.Config == nil || e.Config.RootDir == "" {
 		return config.ManifestDownloadOverride{}, false
 	}
@@ -146,7 +146,7 @@ func downloadOverrideStale(item config.ManifestDownloadOverride, manifestPath st
 	return currentHash != item.BaseHash
 }
 
-func applyManifestDownloadOverrides(e *runtime.Engine, pkgRef, manifestPath string, m *manifest.Manifest, installArch string, req *etypes.InstallRequest) (*manifest.Manifest, bool, bool, error) {
+func applyManifestDownloadOverrides(e *runtime.Services, pkgRef, manifestPath string, m *manifest.Manifest, installArch string, req *etypes.InstallRequest) (*manifest.Manifest, bool, bool, error) {
 	if m == nil {
 		return nil, false, false, nil
 	}
@@ -172,7 +172,7 @@ func applyManifestDownloadOverrides(e *runtime.Engine, pkgRef, manifestPath stri
 }
 
 // SetManifestDownloadOverride persists a per-package download URL override with baseHash.
-func SetManifestDownloadOverride(e *runtime.Engine, pkgRef string, urls, hashes []string, baseHash string) error {
+func SetManifestDownloadOverride(e *runtime.Services, pkgRef string, urls, hashes []string, baseHash string) error {
 	if e == nil || e.Config == nil {
 		return nil
 	}
@@ -180,12 +180,12 @@ func SetManifestDownloadOverride(e *runtime.Engine, pkgRef string, urls, hashes 
 }
 
 // ClearManifestDownloadOverride removes a per-package download URL override.
-func ClearManifestDownloadOverride(e *runtime.Engine, pkgRef string) error {
+func ClearManifestDownloadOverride(e *runtime.Services, pkgRef string) error {
 	return SetManifestDownloadOverride(e, pkgRef, nil, nil, "")
 }
 
 // SetManifestDownloadOverrideForRef resolves pkgRef and saves a URL override tied to the bucket manifest hash.
-func SetManifestDownloadOverrideForRef(e *runtime.Engine, ctx context.Context, pkgRef string, urls, hashes []string) error {
+func SetManifestDownloadOverrideForRef(e *runtime.Services, ctx context.Context, pkgRef string, urls, hashes []string) error {
 	resolved, err := catalog.ResolveInstallRef(e, ctx, pkgRef)
 	if err != nil {
 		return err
@@ -210,7 +210,7 @@ func SetManifestDownloadOverrideForRef(e *runtime.Engine, ctx context.Context, p
 
 // PruneStaleManifestDownloadOverrides deletes download URL overrides whose baseHash
 // no longer matches the current bucket manifest (or whose package/manifest is gone).
-func PruneStaleManifestDownloadOverrides(e *runtime.Engine) (removed []string, err error) {
+func PruneStaleManifestDownloadOverrides(e *runtime.Services) (removed []string, err error) {
 	if e == nil || e.Config == nil || e.Config.RootDir == "" {
 		return nil, nil
 	}
@@ -231,7 +231,7 @@ func PruneStaleManifestDownloadOverrides(e *runtime.Engine) (removed []string, e
 }
 
 // SetManifestJSONOverride persists a per-package manifest JSON override.
-func SetManifestJSONOverride(e *runtime.Engine, pkgRef, manifestPath, jsonText string) error {
+func SetManifestJSONOverride(e *runtime.Services, pkgRef, manifestPath, jsonText string) error {
 	if e == nil || e.Config == nil {
 		return nil
 	}
@@ -270,7 +270,7 @@ func manifestsEquivalent(a, b *manifest.Manifest) bool {
 }
 
 // ClearManifestJSONOverride removes a per-package manifest JSON override.
-func ClearManifestJSONOverride(e *runtime.Engine, pkgRef string) error {
+func ClearManifestJSONOverride(e *runtime.Services, pkgRef string) error {
 	if e == nil || e.Config == nil {
 		return nil
 	}
@@ -278,7 +278,7 @@ func ClearManifestJSONOverride(e *runtime.Engine, pkgRef string) error {
 }
 
 // SetManifestJSONOverrideForRef resolves pkgRef and saves a manifest JSON override.
-func SetManifestJSONOverrideForRef(e *runtime.Engine, ctx context.Context, pkgRef, jsonText string) error {
+func SetManifestJSONOverrideForRef(e *runtime.Services, ctx context.Context, pkgRef, jsonText string) error {
 	resolved, err := catalog.ResolveInstallRef(e, ctx, pkgRef)
 	if err != nil {
 		return err

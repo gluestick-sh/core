@@ -60,7 +60,7 @@ func TestCheckPackageUpdatesUsesActiveVersionOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config:         &EngineConfig{RootDir: root},
 		Cache:          idx,
 		BucketRegistry: bucketRegistry,
@@ -126,7 +126,7 @@ func TestCheckPackageUpdatesAfterCacheIndexClear(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config:         &EngineConfig{RootDir: root},
 		Cache:          idx,
 		BucketRegistry: bucketRegistry,
@@ -163,7 +163,7 @@ func TestInstalledPackagesForUpdateCheckFallsBackToCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config: &EngineConfig{RootDir: root},
 		Cache:  idx,
 	}}
@@ -220,7 +220,7 @@ func TestCheckPackageUpdatesNonMainBucket(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = idx.Close() })
 
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config:         &EngineConfig{RootDir: root},
 		Cache:          idx,
 		BucketRegistry: bucketRegistry,

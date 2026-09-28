@@ -140,7 +140,7 @@ func (e *Engine) SwitchPackageVersion(pkgName, version string) error {
 	root := e.Config.RootDir
 	appsDir := filepath.Join(root, "apps")
 	shimsMetaDir := filepath.Join(root, "shims-meta")
-	err := install.ResetPackage(e.Engine, appsDir, shimsMetaDir, pkgName+"@"+version)
+	err := install.ResetPackage(e.Services, appsDir, shimsMetaDir, pkgName+"@"+version)
 	details := map[string]interface{}{
 		"from": fromVersion,
 		"to":   version,
@@ -159,5 +159,5 @@ func (e *Engine) ResetPackage(pkgRef string) error {
 	root := e.Config.RootDir
 	appsDir := filepath.Join(root, "apps")
 	shimsMetaDir := filepath.Join(root, "shims-meta")
-	return install.ResetPackage(e.Engine, appsDir, shimsMetaDir, pkgRef)
+	return install.ResetPackage(e.Services, appsDir, shimsMetaDir, pkgRef)
 }

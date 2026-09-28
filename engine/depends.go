@@ -35,7 +35,7 @@ func (e *Engine) PlanInstall(ctx context.Context, pkgRef string) (*InstallPlan, 
 		return nil, err
 	}
 	lookupRef := runtime.ManifestLookupRef(resolved)
-	if err := catalog.EnsureBucketForInstall(e.Engine, ctx, lookupRef, nil); err != nil {
+	if err := catalog.EnsureBucketForInstall(e.Services, ctx, lookupRef, nil); err != nil {
 		return nil, err
 	}
 	manifestPath, m, err := e.BucketRegistry.GetManifestPath(lookupRef)
@@ -124,7 +124,7 @@ func (e *Engine) loadManifestForRef(ctx context.Context, pkgRef string, buckets 
 		return nil, err
 	}
 	lookupRef := runtime.ManifestLookupRef(resolved)
-	if err := catalog.EnsureBucketForInstall(e.Engine, ctx, lookupRef, buckets); err != nil {
+	if err := catalog.EnsureBucketForInstall(e.Services, ctx, lookupRef, buckets); err != nil {
 		return nil, err
 	}
 	_, m, err := e.BucketRegistry.GetManifestPath(lookupRef)
@@ -140,18 +140,76 @@ func (e *Engine) isPackageInstalled(pkgRef string) bool {
 	return ok
 }
 
+// dependPhase selects which manifest dependency list a walk follows.
+type dependPhase int
+
+const (
+	// dependPhasePre walks depends_pre and depends (installed before the package).
+	dependPhasePre dependPhase = iota
+	// dependPhasePost walks depends_post (installed after the package).
+	dependPhasePost
+)
+
+// dependRefs returns the manifest dependency refs for a phase. Post-install
+// dependencies are a single list; pre-install ones concatenate depends_pre
+// (which runs first) with depends.
+func dependRefs(m *manifest.Manifest, phase dependPhase) []string {
+	if phase == dependPhasePost {
+		return m.DependsPostList()
+	}
+	refs := append([]string{}, m.DependsPreList()...)
+	return append(refs, m.Depends...)
+}
+
+// appendUnique appends refs that are not yet in seen, keeping first-seen order.
+func appendUnique(dst []string, seen map[string]bool, refs ...string) []string {
+	for _, ref := range refs {
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		dst = append(dst, ref)
+	}
+	return dst
+}
+
+// enterDependNode resolves pkgRef and marks it as visiting, reporting an error
+// on resolve failure or a dependency cycle. On success the caller owns the
+// visiting entry and must delete it when done so the set unwinds on return.
+func (e *Engine) enterDependNode(ctx context.Context, pkgRef string, visiting map[string]bool) (string, error) {
+	resolved, err := e.ResolveInstallRef(ctx, pkgRef)
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", pkgRef, err)
+	}
+	if visiting[resolved] {
+		return "", fmt.Errorf("circular dependency involving %s", resolved)
+	}
+	visiting[resolved] = true
+	return resolved, nil
+}
+
 // collectMissingDepends walks depends_pre and depends recursively, returning an
 // install order of packages not yet present. skipIfInstalled skips the root pkgRef
 // when true (used for transitive deps); visiting detects cycles.
 func (e *Engine) collectMissingDepends(ctx context.Context, pkgRef string, visiting map[string]bool, skipIfInstalled bool, buckets []string) ([]string, error) {
-	resolved, err := e.ResolveInstallRef(ctx, pkgRef)
+	return e.walkMissingDepends(ctx, pkgRef, visiting, skipIfInstalled, buckets, dependPhasePre)
+}
+
+// collectMissingDependsPost walks depends_post the same way as collectMissingDepends
+// but only after the primary package would be installed.
+func (e *Engine) collectMissingDependsPost(ctx context.Context, pkgRef string, visiting map[string]bool, buckets []string) ([]string, error) {
+	// The root of a post walk is installed by then, so it is never skipped.
+	return e.walkMissingDepends(ctx, pkgRef, visiting, false, buckets, dependPhasePost)
+}
+
+// walkMissingDepends is the shared traversal behind collectMissingDepends and
+// collectMissingDependsPost. Post-phase nodes expand their own dependencies
+// through the pre-phase walk, matching how depends_post is installed.
+func (e *Engine) walkMissingDepends(ctx context.Context, pkgRef string, visiting map[string]bool, skipIfInstalled bool, buckets []string, phase dependPhase) ([]string, error) {
+	resolved, err := e.enterDependNode(ctx, pkgRef, visiting)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %q: %w", pkgRef, err)
+		return nil, err
 	}
-	if visiting[resolved] {
-		return nil, fmt.Errorf("circular dependency involving %s", resolved)
-	}
-	visiting[resolved] = true
 	defer delete(visiting, resolved)
 
 	if skipIfInstalled && e.isPackageInstalled(resolved) {
@@ -163,80 +221,26 @@ func (e *Engine) collectMissingDepends(ctx context.Context, pkgRef string, visit
 		return nil, err
 	}
 
-	depLists := append([]string{}, m.DependsPreList()...)
-	depLists = append(depLists, m.Depends...)
-
 	var ordered []string
 	seen := make(map[string]bool)
-	for _, dep := range depLists {
+	for _, dep := range dependRefs(m, phase) {
 		dep = strings.TrimSpace(dep)
 		if dep == "" {
 			continue
 		}
+		// Transitive deps always expand through the pre-phase list.
 		sub, err := e.collectMissingDepends(ctx, dep, visiting, true, buckets)
 		if err != nil {
 			return nil, err
 		}
-		for _, ref := range sub {
-			if !seen[ref] {
-				seen[ref] = true
-				ordered = append(ordered, ref)
-			}
-		}
+		ordered = appendUnique(ordered, seen, sub...)
+
 		depResolved, err := e.ResolveInstallRef(ctx, dep)
 		if err != nil {
 			return nil, fmt.Errorf("resolve dependency %q: %w", dep, err)
 		}
-		if !e.isPackageInstalled(depResolved) && !seen[depResolved] {
-			seen[depResolved] = true
-			ordered = append(ordered, depResolved)
-		}
-	}
-	return ordered, nil
-}
-
-// collectMissingDependsPost walks depends_post the same way as collectMissingDepends
-// but only after the primary package would be installed.
-func (e *Engine) collectMissingDependsPost(ctx context.Context, pkgRef string, visiting map[string]bool, buckets []string) ([]string, error) {
-	resolved, err := e.ResolveInstallRef(ctx, pkgRef)
-	if err != nil {
-		return nil, fmt.Errorf("resolve %q: %w", pkgRef, err)
-	}
-	if visiting[resolved] {
-		return nil, fmt.Errorf("circular dependency involving %s", resolved)
-	}
-	visiting[resolved] = true
-	defer delete(visiting, resolved)
-
-	m, err := e.loadManifestForRef(ctx, resolved, buckets)
-	if err != nil {
-		return nil, err
-	}
-
-	var ordered []string
-	seen := make(map[string]bool)
-	for _, dep := range m.DependsPostList() {
-		dep = strings.TrimSpace(dep)
-		if dep == "" {
-			continue
-		}
-		sub, err := e.collectMissingDepends(ctx, dep, visiting, true, buckets)
-		if err != nil {
-			return nil, err
-		}
-		for _, ref := range sub {
-			if !seen[ref] {
-				seen[ref] = true
-				ordered = append(ordered, ref)
-			}
-		}
-		depResolved, err := e.ResolveInstallRef(ctx, dep)
-		if err != nil {
-			return nil, fmt.Errorf("resolve dependency %q: %w", dep, err)
-		}
-		if !e.isPackageInstalled(depResolved) && !seen[depResolved] {
-			seen[depResolved] = true
-			ordered = append(ordered, depResolved)
+		if !e.isPackageInstalled(depResolved) {
+			ordered = appendUnique(ordered, seen, depResolved)
 		}
 	}
 	return ordered, nil

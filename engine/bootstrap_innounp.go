@@ -10,12 +10,12 @@ import (
 
 // ResolveInnounpPath returns the first usable innounp.exe on Windows.
 func (e *Engine) ResolveInnounpPath() (string, error) {
-	return install.ResolveInnounpPath(e.Engine)
+	return install.ResolveInnounpPath(e.Services)
 }
 
 // CatalogNeedsInnounp reports whether any indexed bucket manifest needs innounp.
 func (e *Engine) CatalogNeedsInnounp() bool {
-	return catalog.CatalogNeedsInnounp(e.Engine)
+	return catalog.CatalogNeedsInnounp(e.Services)
 }
 
 // EnsureInnounpBootstrap downloads and extracts innounp when it is missing.
@@ -23,5 +23,5 @@ func (e *Engine) EnsureInnounpBootstrap(ctx context.Context) (string, error) {
 	if goruntime.GOOS != "windows" {
 		return "", nil
 	}
-	return install.EnsureInnounpBootstrap(e.Engine, ctx)
+	return install.EnsureInnounpBootstrap(e.Services, ctx)
 }

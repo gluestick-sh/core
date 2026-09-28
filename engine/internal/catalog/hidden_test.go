@@ -36,7 +36,7 @@ func TestListCatalogPackagesHidesMainBucketPackage(t *testing.T) {
 	if err := br.ReloadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:    &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx: runtime.NewIndex(),

@@ -45,7 +45,7 @@ type CatalogResolveRequest struct {
 }
 
 // CatalogBuckets returns installed buckets with indexed package counts.
-func CatalogBuckets(e *runtime.Engine, q CatalogBucketsQuery) []CatalogBucketSummary {
+func CatalogBuckets(e *runtime.Services, q CatalogBucketsQuery) []CatalogBucketSummary {
 	if e.SearchIdx == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func CatalogBuckets(e *runtime.Engine, q CatalogBucketsQuery) []CatalogBucketSum
 }
 
 // ListCatalogPackages returns paginated packages from the search index.
-func ListCatalogPackages(e *runtime.Engine, q CatalogPackageQuery) (*CatalogPackagePage, error) {
+func ListCatalogPackages(e *runtime.Services, q CatalogPackageQuery) (*CatalogPackagePage, error) {
 	if e.SearchIdx == nil {
 		return &CatalogPackagePage{Items: []*etypes.Package{}}, nil
 	}
@@ -109,7 +109,7 @@ func ListCatalogPackages(e *runtime.Engine, q CatalogPackageQuery) (*CatalogPack
 }
 
 // ResolveCatalogPackages resolves package names for recipe cards.
-func ResolveCatalogPackages(e *runtime.Engine, requests []CatalogResolveRequest) []*etypes.Package {
+func ResolveCatalogPackages(e *runtime.Services, requests []CatalogResolveRequest) []*etypes.Package {
 	if e.SearchIdx == nil || len(requests) == 0 {
 		return nil
 	}

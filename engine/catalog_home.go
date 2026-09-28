@@ -22,7 +22,7 @@ func (e *Engine) PackageHomepage(ctx context.Context, pkgRef string) (string, er
 		return "", err
 	}
 	lookupRef := runtime.ManifestLookupRef(resolved)
-	if err := catalog.EnsureBucketForInstall(e.Engine, ctx, lookupRef, nil); err != nil {
+	if err := catalog.EnsureBucketForInstall(e.Services, ctx, lookupRef, nil); err != nil {
 		return "", err
 	}
 	_, m, err := e.BucketRegistry.GetManifestPath(lookupRef)

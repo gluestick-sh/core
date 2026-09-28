@@ -82,7 +82,7 @@ func TestResolveInstallRefTypedErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &runtime.Engine{Config: &etypes.EngineConfig{RootDir: root}, BucketRegistry: br, SearchIdx: runtime.NewIndex()}
+	e := &runtime.Services{Config: &etypes.EngineConfig{RootDir: root}, BucketRegistry: br, SearchIdx: runtime.NewIndex()}
 
 	_, err = ResolveInstallRef(e, context.Background(), "missing-package")
 	if err == nil {
@@ -115,7 +115,7 @@ func TestResolveInstallRefNonMain(t *testing.T) {
 		t.Logf("  - %s: %s", b.Name, b.Root)
 	}
 
-	e := &runtime.Engine{Config: &etypes.EngineConfig{RootDir: root}, BucketRegistry: br, SearchIdx: runtime.NewIndex()}
+	e := &runtime.Services{Config: &etypes.EngineConfig{RootDir: root}, BucketRegistry: br, SearchIdx: runtime.NewIndex()}
 	runtime.RebuildSearchIndex(e)
 
 	got, err := ResolveInstallRef(e, context.Background(), "zotero")
@@ -171,7 +171,7 @@ func TestWrapManifestNotFoundHint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{Config: &etypes.EngineConfig{RootDir: root}, BucketRegistry: br, SearchIdx: runtime.NewIndex()}
+	e := &runtime.Services{Config: &etypes.EngineConfig{RootDir: root}, BucketRegistry: br, SearchIdx: runtime.NewIndex()}
 	runtime.RebuildSearchIndex(e)
 	err = WrapManifestNotFound(e, "zotero", &apperr.ManifestNotFound{Name: "zotero"})
 	if err == nil {
@@ -221,7 +221,7 @@ func TestEnsureBucketForInstallSkipsReloadWhenIndexed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -248,7 +248,7 @@ func TestEnsureBucketForInstallIndexesUnregisteredBucketDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -280,7 +280,7 @@ func TestEnsureBucketForInstallWithBucketsFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -329,7 +329,7 @@ func TestEnsureBucketForInstallContextCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -368,7 +368,7 @@ func TestEnsureBucketForInstallBucketsErrorMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),

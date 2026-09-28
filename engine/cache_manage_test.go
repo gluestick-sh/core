@@ -28,7 +28,7 @@ func TestListCachePackagesAndSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &Engine{Engine: &runtime.Engine{
+	e := &Engine{Services: &runtime.Services{
 		Config: &EngineConfig{RootDir: root},
 		Store:  store,
 		Cache:  idx,

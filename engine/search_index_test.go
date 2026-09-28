@@ -43,8 +43,8 @@ func TestSearchIndexBucketLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}, BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
-	runtime.RebuildSearchIndex(e.Engine)
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}, BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	runtime.RebuildSearchIndex(e.Services)
 
 	matches := e.SearchIdx.Search("git", nil, nil)
 	if len(matches) != 1 {
@@ -69,7 +69,7 @@ func TestSearchIndexBucketLifecycle(t *testing.T) {
 	}
 
 	bucketRegistry.ReloadFromDisk()
-	runtime.SyncSearchIndex(e.Engine, false)
+	runtime.SyncSearchIndex(e.Services, false)
 
 	matches = e.SearchIdx.Search("7zip", nil, nil)
 	if len(matches) != 1 || matches[0].Bucket != "extras" {
@@ -80,7 +80,7 @@ func TestSearchIndexBucketLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	bucketRegistry.ReloadFromDisk()
-	runtime.SyncSearchIndex(e.Engine, false)
+	runtime.SyncSearchIndex(e.Services, false)
 
 	matches = e.SearchIdx.Search("7zip", nil, nil)
 	if len(matches) != 0 {
@@ -120,8 +120,8 @@ func TestCountAvailablePackagesMatchesIndex(t *testing.T) {
 	}
 	bucketRegistry.ReloadFromDisk()
 
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}, BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
-	runtime.RebuildSearchIndex(e.Engine)
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}, BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	runtime.RebuildSearchIndex(e.Services)
 
 	if got := e.CountAvailablePackages(false); got != 2 {
 		t.Fatalf("CountAvailablePackages() = %d, want 2", got)
@@ -161,8 +161,8 @@ func TestSyncSearchIndexLoadsNewBucketOnly(t *testing.T) {
 	}
 	bucketRegistry.ReloadFromDisk()
 
-	e := &Engine{Engine: &runtime.Engine{Config: &EngineConfig{RootDir: root}, BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
-	runtime.RebuildSearchIndex(e.Engine)
+	e := &Engine{Services: &runtime.Services{Config: &EngineConfig{RootDir: root}, BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	runtime.RebuildSearchIndex(e.Services)
 	if !e.SearchIdx.HasLoadedBucket("main") {
 		t.Fatal("expected main bucket to be indexed")
 	}
@@ -183,7 +183,7 @@ func TestSyncSearchIndexLoadsNewBucketOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime.SyncSearchIndex(e.Engine, false)
+	runtime.SyncSearchIndex(e.Services, false)
 
 	if !e.SearchIdx.HasLoadedBucket("extras") {
 		t.Fatal("expected new extras bucket to be indexed immediately")
@@ -223,8 +223,8 @@ func TestSearchIndexDeprecatedFilter(t *testing.T) {
 	if err := bucketRegistry.ReloadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
-	runtime.RebuildSearchIndex(e.Engine)
+	e := &Engine{Services: &runtime.Services{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	runtime.RebuildSearchIndex(e.Services)
 
 	all := e.SearchIdx.ListEntries("lemon", "", false, nil)
 	if len(all) != 2 {
@@ -262,8 +262,8 @@ func TestSearchIndexArchivedInDeprecatedDir(t *testing.T) {
 	if err := bucketRegistry.ReloadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
-	runtime.RebuildSearchIndex(e.Engine)
+	e := &Engine{Services: &runtime.Services{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	runtime.RebuildSearchIndex(e.Services)
 
 	entries := e.SearchIdx.ListEntries("main", "axel", false, nil)
 	if len(entries) != 1 {
@@ -299,8 +299,8 @@ func TestSearchIndexPartialNameMatch(t *testing.T) {
 	if err := bucketRegistry.ReloadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
-	runtime.RebuildSearchIndex(e.Engine)
+	e := &Engine{Services: &runtime.Services{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	runtime.RebuildSearchIndex(e.Services)
 
 	matches := e.SearchIdx.Search("dag", nil, nil)
 	if len(matches) != 1 || matches[0].Name != "dagger" {
@@ -330,11 +330,11 @@ func TestSearchWaitsForAsyncIndexBuild(t *testing.T) {
 	if err := bucketRegistry.ReloadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Engine: &runtime.Engine{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
+	e := &Engine{Services: &runtime.Services{BucketRegistry: bucketRegistry, SearchIdx: runtime.NewIndex()}}
 
 	ready := make(chan struct{})
 	go func() {
-		runtime.RebuildSearchIndex(e.Engine)
+		runtime.RebuildSearchIndex(e.Services)
 		close(ready)
 	}()
 
