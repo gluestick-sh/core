@@ -23,9 +23,7 @@ const (
 	SourceManual       = "manual"
 	SourceAutoBackup   = "auto-backup"
 	SourceSync         = "sync"
-	SourceProfile      = "profile"
 	SourceRecipe       = "recipe"
-	SourceWorkspace    = "workspace" // legacy alias; prefer SourceRecipe
 	SourceRestorePoint = "restore-point"
 
 	ApplyModeInstallMissing = "install-missing"
