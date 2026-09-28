@@ -281,8 +281,8 @@ func (idx *Index) FindExactName(pkgName string) []Entry {
 	return matches
 }
 
-// RebuildSearchIndex runs a full index rebuild in the background goroutine started by NewEngine.
-func RebuildSearchIndex(e *Engine) {
+// RebuildSearchIndex runs a full index rebuild in the background goroutine started by NewServices.
+func RebuildSearchIndex(e *Services) {
 	if e.SearchIdx == nil {
 		e.SearchIdx = NewIndex()
 	}
@@ -291,12 +291,12 @@ func RebuildSearchIndex(e *Engine) {
 }
 
 // SearchIndexReady reports whether the initial bucket manifest index build has finished.
-func SearchIndexReady(e *Engine) bool {
+func SearchIndexReady(e *Services) bool {
 	return e.SearchIdxReady.Load()
 }
 
-// WaitSearchIndexReady blocks until the background index build started by NewEngine completes.
-func WaitSearchIndexReady(e *Engine, ctx context.Context) error {
+// WaitSearchIndexReady blocks until the background index build started by NewServices completes.
+func WaitSearchIndexReady(e *Services, ctx context.Context) error {
 	if e.SearchIdxReady.Load() {
 		return nil
 	}
@@ -313,7 +313,7 @@ func WaitSearchIndexReady(e *Engine, ctx context.Context) error {
 }
 
 // SyncSearchIndex aligns the in-memory index with bucketMgr without a full rebuild.
-func SyncSearchIndex(e *Engine, refreshExisting bool) {
+func SyncSearchIndex(e *Services, refreshExisting bool) {
 	if e.SearchIdx == nil {
 		e.SearchIdx = NewIndex()
 	}
@@ -350,7 +350,7 @@ func SyncSearchIndex(e *Engine, refreshExisting bool) {
 }
 
 // LoadSearchIndexBucket immediately indexes a single bucket (e.g. after add).
-func LoadSearchIndexBucket(e *Engine, name string) {
+func LoadSearchIndexBucket(e *Services, name string) {
 	if e.SearchIdx == nil {
 		e.SearchIdx = NewIndex()
 	}
@@ -363,7 +363,7 @@ func LoadSearchIndexBucket(e *Engine, name string) {
 }
 
 // RemoveSearchIndexBucket drops all indexed packages for a bucket (e.g. after remove).
-func RemoveSearchIndexBucket(e *Engine, name string) {
+func RemoveSearchIndexBucket(e *Services, name string) {
 	if e.SearchIdx == nil {
 		return
 	}

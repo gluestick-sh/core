@@ -24,8 +24,8 @@ import (
 	"github.com/gluestick-sh/core/verbose"
 )
 
-// Engine holds shared runtime state for package operations.
-type Engine struct {
+// Services holds shared runtime state for package operations.
+type Services struct {
 	Config         *etypes.EngineConfig
 	Store          *store.Store
 	Cache          *cache.Index
@@ -40,8 +40,8 @@ type Engine struct {
 	LaunchIndexMu  sync.Mutex
 }
 
-// NewEngine creates a new package engine instance.
-func NewEngine(cfg *etypes.EngineConfig) (*Engine, error) {
+// NewServices creates a new package engine instance.
+func NewServices(cfg *etypes.EngineConfig) (*Services, error) {
 	verbose.Set(cfg.Verbose)
 
 	if _, err := device.Ensure(cfg.RootDir); err != nil {
@@ -90,7 +90,7 @@ func NewEngine(cfg *etypes.EngineConfig) (*Engine, error) {
 		return nil, fmt.Errorf("failed to initialize shim manager: %w", err)
 	}
 
-	engine := &Engine{
+	engine := &Services{
 		Config:         cfg,
 		Store:          st,
 		Cache:          cacheIdx,
@@ -107,7 +107,7 @@ func NewEngine(cfg *etypes.EngineConfig) (*Engine, error) {
 }
 
 // Close releases all resources held by the engine.
-func (e *Engine) Close() error {
+func (e *Services) Close() error {
 	if e.Cache != nil {
 		return e.Cache.Close()
 	}
@@ -115,7 +115,7 @@ func (e *Engine) Close() error {
 }
 
 // InstalledPackageCount returns the number of packages with an active install under apps/.
-func (e *Engine) InstalledPackageCount() int {
+func (e *Services) InstalledPackageCount() int {
 	if e == nil || e.Config == nil {
 		return 0
 	}
@@ -141,7 +141,7 @@ func countInstalledOnDisk(appsDir string) int {
 }
 
 // TotalInstalledSize sums indexed package sizes for packages still present under apps/.
-func (e *Engine) TotalInstalledSize() int64 {
+func (e *Services) TotalInstalledSize() int64 {
 	if e == nil || e.Config == nil {
 		return 0
 	}
@@ -158,14 +158,14 @@ func (e *Engine) TotalInstalledSize() int64 {
 }
 
 // ReloadGitHubProxies reloads GitHub mirror settings from config and environment.
-func (e *Engine) ReloadGitHubProxies() {
+func (e *Services) ReloadGitHubProxies() {
 	proxies := config.LoadProxies(e.Config.RootDir)
 	e.Downloader.SetGitHubProxies(proxies)
 	e.Bootstrap.SetGitHubProxies(proxies)
 }
 
 // SetWorkers updates parallel download and extract worker counts.
-func (e *Engine) SetWorkers(n int) {
+func (e *Services) SetWorkers(n int) {
 	n = downloader.NormalizeUserWorkers(n)
 	e.Config.Workers = n
 	e.Downloader.SetWorkers(n)
@@ -173,7 +173,7 @@ func (e *Engine) SetWorkers(n int) {
 }
 
 // GetStats returns engine statistics.
-func (e *Engine) GetStats() *etypes.EngineStats {
+func (e *Services) GetStats() *etypes.EngineStats {
 	if e == nil || e.Stats == nil {
 		return &etypes.EngineStats{}
 	}
@@ -182,7 +182,7 @@ func (e *Engine) GetStats() *etypes.EngineStats {
 }
 
 // RecordFailedOp records a failed operation and its duration in engine stats.
-func (e *Engine) RecordFailedOp(duration time.Duration) {
+func (e *Services) RecordFailedOp(duration time.Duration) {
 	if e == nil || e.Stats == nil {
 		return
 	}
@@ -191,7 +191,7 @@ func (e *Engine) RecordFailedOp(duration time.Duration) {
 }
 
 // RecordSuccessfulInstall records a successful package install in engine stats.
-func (e *Engine) RecordSuccessfulInstall() {
+func (e *Services) RecordSuccessfulInstall() {
 	if e == nil || e.Stats == nil {
 		return
 	}
@@ -200,7 +200,7 @@ func (e *Engine) RecordSuccessfulInstall() {
 }
 
 // RecordSuccessfulOp records a successful non-install operation in engine stats.
-func (e *Engine) RecordSuccessfulOp() {
+func (e *Services) RecordSuccessfulOp() {
 	if e == nil || e.Stats == nil {
 		return
 	}
