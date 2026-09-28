@@ -76,7 +76,7 @@ func expectedMultiArtifactNames(pairs []urlHashPair) ([]string, error) {
 	return names, nil
 }
 
-func downloadManifestArtifact(e *runtime.Engine, ctx context.Context, pair urlHashPair, force, log bool) (downloader.Result, downloader.Task, error) {
+func downloadManifestArtifact(e *runtime.Services, ctx context.Context, pair urlHashPair, force, log bool) (downloader.Result, downloader.Task, error) {
 	pairParsed, err := manifest.ParseURL(pair.url)
 	if err != nil {
 		return downloader.Result{}, downloader.Task{}, fmt.Errorf("parse download URL: %w", err)

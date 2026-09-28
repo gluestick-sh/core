@@ -9,33 +9,6 @@ import (
 	"github.com/gluestick-sh/core/shim"
 )
 
-func TestPackageNameFromAppsPath(t *testing.T) {
-	tests := []struct {
-		path string
-		want string
-	}{
-		{`C:\Users\test\.glue\apps\nodejs\22.0.0\current\node.exe`, "nodejs"},
-		{`/home/user/.glue/apps/nodejs-lts/20.0.0/current/node.exe`, "nodejs-lts"},
-		{`C:\Users\test\.glue\apps\nodejs\22.0.0\node.exe`, "nodejs"},
-		{`C:\other\node.exe`, ""},
-	}
-	for _, tt := range tests {
-		if got := packageNameFromAppsPath(tt.path); got != tt.want {
-			t.Errorf("packageNameFromAppsPath(%q) = %q, want %q", tt.path, got, tt.want)
-		}
-	}
-}
-
-func TestShimMetaBelongsToPackage_exactMatch(t *testing.T) {
-	nodejsPath := `C:\glue\apps\nodejs\22.0.0\current\node.exe`
-	if shimMetaBelongsToPackage(nodejsPath, "node") {
-		t.Fatal("nodejs path must not belong to package node")
-	}
-	if !shimMetaBelongsToPackage(nodejsPath, "nodejs") {
-		t.Fatal("nodejs path must belong to package nodejs")
-	}
-}
-
 func TestCreatePackageShims_skipsConflictingShimName(t *testing.T) {
 	root := t.TempDir()
 	appsDir := filepath.Join(root, "apps")
@@ -71,8 +44,8 @@ func TestCreatePackageShims_skipsConflictingShimName(t *testing.T) {
 		t.Fatalf("createPackageShims: %v", err)
 	}
 
-	owner := shimOwnerPackage(shimsMetaDir, "node")
-	if owner != "nodejs" {
-		t.Fatalf("node shim owner = %q, want nodejs", owner)
+	owner, conflict := shim.OwnedByOtherPackage(shimsMetaDir, "node", "nodejs-lts")
+	if !conflict || owner != "nodejs" {
+		t.Fatalf("node shim owner = %q conflict=%v, want nodejs/true", owner, conflict)
 	}
 }

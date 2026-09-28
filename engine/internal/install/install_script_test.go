@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"bytes"
 	"os"
 	"path/filepath"
@@ -50,7 +51,7 @@ func expand7zipHelperFromScript(t *testing.T, script string) string {
 }
 
 func TestInstallerAndHookExpand7zipHelperIdentical(t *testing.T) {
-	hookScript := buildInstallHookScript(HookScriptEnv{
+	hookScript := lifecycle.BuildInstallHookScript(lifecycle.HookScriptEnv{
 		InstallDir:   `C:\apps\demo\1.0`,
 		DownloadName: `setup.7z`,
 		Version:      "1.0",
@@ -63,7 +64,7 @@ func TestInstallerAndHookExpand7zipHelperIdentical(t *testing.T) {
 		`C:\apps\demo\1.0`, `setup.7z`, `demo`, `main`, `C:\buckets`, ``, testSevenZip, ``, ``, `64bit`, false,
 		[]string{"# noop"},
 	)
-	want := strings.TrimSpace(expand7zipHelperFromScript(t, scoopExpand7zipArchiveHelper(testSevenZip)))
+	want := strings.TrimSpace(expand7zipHelperFromScript(t, lifecycle.ScoopExpand7zipArchiveHelper(testSevenZip)))
 	gotHook := strings.TrimSpace(expand7zipHelperFromScript(t, hookScript))
 	gotInstaller := strings.TrimSpace(expand7zipHelperFromScript(t, installerScript))
 	if gotHook != want {

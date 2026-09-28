@@ -45,7 +45,7 @@ func TestPackageFullNewFlow(t *testing.T) {
 	}
 
 	// Setup minimal engine - just enough for resolve phase
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -117,7 +117,7 @@ func TestStateConsistency(t *testing.T) {
 	}
 
 	// Setup engine
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"fmt"
 	"os"
 	"time"
@@ -130,7 +131,7 @@ func fetchInstallAttempt(state *installState, report func(phase etypes.Phase, st
 
 	// Phase 2.5: Ensure 7z extractor if needed
 	if installNeedsSevenZip(m, state.downloadName, normalizeInstallFileExt(state.fileExt), installArch) {
-		if err := ensureExtractor7zWithProf(state.engine, state.ctx, state.prof, state.pkgName); err != nil {
+		if err := lifecycle.Ensure7Zip(state.engine, state.ctx, state.pkgName, state.timings.runBootstrap); err != nil {
 			return fmt.Errorf("ensure 7z: %w", err)
 		}
 	}
@@ -222,7 +223,7 @@ func downloadMultiArtifacts(state *installState) error {
 			"size": humanize.FormatBytes(totalDownload),
 		}, totalDownload, totalDownload)
 	}
-	state.prof.absorbDownloadResults(state.downloadResults)
+	state.timings.absorbDownloadResults(state.downloadResults)
 
 	return nil
 }
@@ -347,7 +348,7 @@ func downloadSingleArtifactWithMirrors(state *installState, activeDownloadFile s
 		}
 	}
 	recordFile(state, state.downloadResults[0].Hash, state.downloadName)
-	state.prof.absorbDownloadResults(state.downloadResults)
+	state.timings.absorbDownloadResults(state.downloadResults)
 
 	return nil
 }

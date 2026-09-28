@@ -17,7 +17,7 @@ import (
 // TestNewInstallState verifies installState initialization
 func TestNewInstallState(t *testing.T) {
 	root := t.TempDir()
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:    &etypes.EngineConfig{RootDir: root},
 		Extractor: &extractor.Extractor{},
 	}
@@ -48,7 +48,7 @@ func TestNewInstallState(t *testing.T) {
 // TestResolveInstallPhase_BucketNotFound tests bucket not found error
 func TestResolveInstallPhase_BucketNotFound(t *testing.T) {
 	root := t.TempDir()
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: &bucket.Registry{},
 	}
@@ -99,7 +99,7 @@ func TestResolveInstallPhase_WithValidManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -140,7 +140,7 @@ func TestResolveInstallPhase_WithValidManifest(t *testing.T) {
 // TestFetchInstallPhase_NoURLs tests manifest with no URLs
 func TestFetchInstallPhase_NoURLs(t *testing.T) {
 	state := &installState{
-		engine:         &runtime.Engine{},
+		engine:         &runtime.Services{},
 		ctx:            context.Background(),
 		req:            &etypes.InstallRequest{Request: etypes.Request{Name: "test"}},
 		pkgRef:         "test",
@@ -175,7 +175,7 @@ func TestInstallState_Cleanup(t *testing.T) {
 
 	// Create a mock extractor that implements the interface
 	mockExtract := &extractor.Extractor{}
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:    &etypes.EngineConfig{RootDir: root},
 		Extractor: mockExtract,
 	}

@@ -25,7 +25,7 @@ func versionLockedFromMetadata(metadata map[string]any) bool {
 }
 
 // IsPackageVersionLocked reports whether upgrades are blocked for the package.
-func IsPackageVersionLocked(e *runtime.Engine, pkgName string) bool {
+func IsPackageVersionLocked(e *runtime.Services, pkgName string) bool {
 	if e == nil || e.Cache == nil {
 		return false
 	}

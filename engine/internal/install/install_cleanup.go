@@ -1,6 +1,8 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/shim"
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"os"
 	"path/filepath"
 
@@ -9,7 +11,7 @@ import (
 )
 
 // cleanupIncompleteInstall removes artifacts from a failed install attempt for one version.
-func cleanupIncompleteInstall(e *runtime.Engine, root, pkgName, version string) {
+func cleanupIncompleteInstall(e *runtime.Services, root, pkgName, version string) {
 	if pkgName == "" || version == "" {
 		return
 	}
@@ -29,7 +31,7 @@ func cleanupIncompleteInstall(e *runtime.Engine, root, pkgName, version string) 
 	if e != nil && e.ShimMgr != nil {
 		shimsMetaDir := filepath.Join(root, "shims-meta")
 		appsDir := filepath.Join(root, "apps")
-		_, _ = removeShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName)
+		_, _ = shim.RemoveShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName)
 	}
 
 	if e != nil && e.Cache != nil {
@@ -39,7 +41,7 @@ func cleanupIncompleteInstall(e *runtime.Engine, root, pkgName, version string) 
 	}
 
 	if runtime.VersionDirInstalled(root, pkgName, version) {
-		_ = RemoveAll(installDir)
+		_ = lifecycle.RemoveAll(installDir)
 	}
 
 	if entries, err := os.ReadDir(pkgRoot); err == nil && len(entries) == 0 {

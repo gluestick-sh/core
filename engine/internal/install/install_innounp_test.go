@@ -19,9 +19,9 @@ func TestIsInnounpHelperPackage(t *testing.T) {
 	}
 }
 
-func TestEnsureInnounpWithProfSkipsWhenNotNeeded(t *testing.T) {
-	e := &runtime.Engine{Config: &etypes.EngineConfig{RootDir: t.TempDir()}}
-	path, err := ensureInnounpWithProf(e, context.Background(), nil, false, "python")
+func TestEnsureInnounpWithTimingsSkipsWhenNotNeeded(t *testing.T) {
+	e := &runtime.Services{Config: &etypes.EngineConfig{RootDir: t.TempDir()}}
+	path, err := ensureInnounpWithTimings(e, context.Background(), nil, false, "python")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/shim"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func packageNeedsCurrentRepair(root, pkgName string) (version string, ok bool) {
 }
 
 // repairBrokenCurrentInstall restores current and shims after a partial uninstall.
-func repairBrokenCurrentInstall(e *runtime.Engine, pkgRef, pkgName, version string, m *manifest.Manifest) error {
+func repairBrokenCurrentInstall(e *runtime.Services, pkgRef, pkgName, version string, m *manifest.Manifest) error {
 	root := e.Config.RootDir
 	pkgRoot := apps.PkgRoot(root, pkgName)
 	if !runtime.VersionDirInstalled(root, pkgName, version) {
@@ -36,13 +37,13 @@ func repairBrokenCurrentInstall(e *runtime.Engine, pkgRef, pkgName, version stri
 	}
 	shimsMetaDir := filepath.Join(root, "shims-meta")
 	appsDir := filepath.Join(root, "apps")
-	if _, err := removeShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName); err != nil {
+	if _, err := shim.RemoveShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName); err != nil {
 		return fmt.Errorf("remove broken shims: %w", err)
 	}
 	currentDir := filepath.Join(pkgRoot, apps.CurrentLinkName)
 	if err := createPackageShims(e.ShimMgr, shimsMetaDir, pkgName, installDir, currentDir, m); err != nil {
 		return fmt.Errorf("recreate shims: %w", err)
 	}
-	verbose.Progressf("  %s Restored %s@%s\n", successMark(), pkgName, version)
+	verbose.Progressf("  %s Restored %s@%s\n", verbose.SuccessMark(), pkgName, version)
 	return nil
 }

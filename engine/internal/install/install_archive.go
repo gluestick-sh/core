@@ -70,8 +70,8 @@ func archiveMemberIndexReady(d *downloader.Downloader, archiveHash string) bool 
 
 // installArchiveFromMemberIndex hardlinks from a persisted member index when available;
 // otherwise extracts, adopts files into cache store, and saves the index for fast reinstall.
-func installArchiveFromMemberIndex(e *eruntime.Engine, 
-	prof *installPhaseProfile,
+func installArchiveFromMemberIndex(e *eruntime.Services, 
+	timings *installPhaseTimings,
 	casPath, installDir, downloadName, archiveHash string,
 	extractTo, extractDir string,
 	installedFiles map[string]string,
@@ -86,8 +86,8 @@ func installArchiveFromMemberIndex(e *eruntime.Engine,
 		verbose.Progressf("  Linking files from store...\n")
 		linkStart := time.Now()
 		linked, err := LinkExtractedFiles(e.Store, installDir, extractTo, extractDir, memberFiles, nil)
-		if prof != nil {
-			prof.addLink(linkStart)
+		if timings != nil {
+			timings.addLink(linkStart)
 		}
 		if err != nil {
 			return 0, err
@@ -132,8 +132,8 @@ func installArchiveFromMemberIndex(e *eruntime.Engine,
 		return err
 	}
 	var extractErr error
-	if prof != nil {
-		extractErr = prof.runExtract(runExtractAdopt)
+	if timings != nil {
+		extractErr = timings.runExtract(runExtractAdopt)
 	} else {
 		extractErr = runExtractAdopt()
 	}

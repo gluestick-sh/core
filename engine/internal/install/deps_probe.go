@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,7 +47,7 @@ func ProbeGit(root string) ToolAvailability {
 
 // ProbeSevenZip reports whether 7-Zip exists under glue root or on PATH.
 func ProbeSevenZip(root string) ToolAvailability {
-	path := ResolveLocalSevenZip(root)
+	path := lifecycle.ResolveLocalSevenZip(root)
 	if path == "" {
 		return ToolAvailability{}
 	}
@@ -59,7 +60,7 @@ func ProbeSevenZip(root string) ToolAvailability {
 
 // ProbeDark reports whether WiX dark/wix is available (bootstrap or glue install).
 func ProbeDark(root string) ToolAvailability {
-	path, err := resolveDark(root)
+	path, err := lifecycle.ResolveDark(root)
 	if err != nil {
 		return ToolAvailability{}
 	}

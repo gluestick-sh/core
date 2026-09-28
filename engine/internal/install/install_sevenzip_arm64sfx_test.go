@@ -59,7 +59,7 @@ func TestApplySevenZipArm64SFXInstall_alreadyExtracted(t *testing.T) {
 		t.Fatal(err)
 	}
 	download := "7z2601-arm64.exe"
-	e := &runtime.Engine{}
+	e := &runtime.Services{}
 	if err := applySevenZipArm64SFXInstall(e, context.Background(), dir, download, "", m); err != nil {
 		t.Fatalf("applySevenZipArm64SFXInstall without sfx on disk: %v", err)
 	}

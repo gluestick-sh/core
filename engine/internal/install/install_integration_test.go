@@ -48,7 +48,7 @@ func TestResolveFetchIntegration(t *testing.T) {
 	}
 
 	// Setup engine with minimal components
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:         &etypes.EngineConfig{RootDir: root},
 		BucketRegistry: br,
 		SearchIdx:      runtime.NewIndex(),
@@ -118,7 +118,7 @@ func TestResolveFetchIntegration(t *testing.T) {
 
 func TestValidateInstallTarget_manifestNotFound(t *testing.T) {
 	root := t.TempDir()
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:    &etypes.EngineConfig{RootDir: root},
 		Extractor: &extractor.Extractor{},
 	}
@@ -142,7 +142,7 @@ func TestValidateInstallTarget_manifestNotFound(t *testing.T) {
 func TestInstallStateLifecycle(t *testing.T) {
 	root := t.TempDir()
 
-	e := &runtime.Engine{
+	e := &runtime.Services{
 		Config:    &etypes.EngineConfig{RootDir: root},
 		Extractor: &extractor.Extractor{},
 	}

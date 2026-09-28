@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -27,14 +28,14 @@ func deployMSIAlias(state *installState, hash string,
 		return fmt.Errorf("link %s: %w", state.downloadName, err)
 	}
 	recordFile(state, hash, state.downloadName)
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	verbose.Progressf("  Installed %s (MSI, pre_install extract)\n", state.downloadName)
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".msi_", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployExe handles EXE deployment, routing to appropriate strategy.
@@ -68,8 +69,8 @@ func deployExe(state *installState, casPath, hash string,
 		}); err != nil {
 			return err
 		}
-		if state.prof != nil {
-			state.prof.addLink(linkStart)
+		if state.timings != nil {
+			state.timings.addLink(linkStart)
 		}
 		verbose.Progressf("  Installed %s (portable exe)\n", downloadName)
 		if err := validateInstallDir(state.installDir); err != nil {
@@ -80,7 +81,7 @@ func deployExe(state *installState, casPath, hash string,
 		}
 		return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 			state.installDir, state.downloadName, ".exe", state.installedFiles, state.totalSize,
-			state.req, state.reporter, state.prof)
+			state.req, state.reporter, state.timings)
 	}
 
 	// Handle pre-install 7z hook installs (SFX)
@@ -91,8 +92,8 @@ func deployExe(state *installState, casPath, hash string,
 		}); err != nil {
 			return err
 		}
-		if state.prof != nil {
-			state.prof.addLink(linkStart)
+		if state.timings != nil {
+			state.timings.addLink(linkStart)
 		}
 		verbose.Progressf("  Installed %s (SFX, pre_install extract)\n", downloadName)
 		if err := validateInstallDir(state.installDir); err != nil {
@@ -103,7 +104,7 @@ func deployExe(state *installState, casPath, hash string,
 		}
 		return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 			state.installDir, state.downloadName, ".exe", state.installedFiles, state.totalSize,
-			state.req, state.reporter, state.prof)
+			state.req, state.reporter, state.timings)
 	}
 
 	// Handle InnoSetup installers
@@ -129,12 +130,12 @@ func deployExe(state *installState, casPath, hash string,
 func deployInnoSetup(state *installState, casPath string,
 	_ /*report*/ func(etypes.Phase, etypes.Status, float64, string, map[string]any, int64, int64),
 ) error {
-	if err := extractInnoInstaller(state.engine, state.ctx, state.prof, state.engine.Config.RootDir, casPath, state.installDir, state.pkgName, state.manifest, state.installedFiles, &state.totalSize); err != nil {
+	if err := extractInnoInstaller(state.engine, state.ctx, state.timings, state.engine.Config.RootDir, casPath, state.installDir, state.pkgName, state.manifest, state.installedFiles, &state.totalSize); err != nil {
 		return err
 	}
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".exe", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployInstallerScript handles deployment via custom installer scripts.
@@ -151,12 +152,12 @@ func deployInstallerScript(state *installState, _ /* casPath */, hash string,
 ) error {
 	m := state.manifest
 	installArch := state.installArch
-	if _, err := extractViaInstallerScript(state.engine, state.ctx, state.prof, state.pkgRef, state.installDir, state.downloadName, hash, installArch, m, installInteractive(state.req), state.installedFiles, &state.totalSize, reportIndexProgress); err != nil {
+	if _, err := extractViaInstallerScript(state.engine, state.ctx, state.timings, state.pkgRef, state.installDir, state.downloadName, hash, installArch, m, installInteractive(state.req), state.installedFiles, &state.totalSize, reportIndexProgress); err != nil {
 		return err
 	}
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".exe", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployExeAsArchive handles EXE deployment as a standard archive.
@@ -173,7 +174,7 @@ func deployExeAsArchive(state *installState, casPath, hash string,
 	reportIndexProgress func(int64, int64),
 	report func(etypes.Phase, etypes.Status, float64, string, map[string]any, int64, int64),
 ) error {
-	if err := ensureExtractor7zWithProf(state.engine, state.ctx, state.prof, state.pkgName); err != nil {
+	if err := lifecycle.Ensure7Zip(state.engine, state.ctx, state.pkgName, state.timings.runBootstrap); err != nil {
 		return fmt.Errorf("ensure 7z: %w", err)
 	}
 
@@ -184,7 +185,7 @@ func deployExeAsArchive(state *installState, casPath, hash string,
 	downloadName := state.downloadName
 
 	reportDeployStart(report, archiveMemberIndexReady(state.engine.Downloader, hash))
-	count, err := installArchiveFromMemberIndex(state.engine, state.prof, casPath, state.installDir, downloadName, hash, extractTo, extractDir, state.installedFiles, &state.totalSize, reportIndexProgress)
+	count, err := installArchiveFromMemberIndex(state.engine, state.timings, casPath, state.installDir, downloadName, hash, extractTo, extractDir, state.installedFiles, &state.totalSize, reportIndexProgress)
 	if err != nil {
 		return extractPhaseError(err)
 	}
@@ -195,7 +196,7 @@ func deployExeAsArchive(state *installState, casPath, hash string,
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".exe", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployGenericFile handles single-file package deployment.
@@ -214,12 +215,12 @@ func deployGenericFile(state *installState, _ /* casPath */, hash string,
 		return fmt.Errorf("link %s: %w", state.downloadName, err)
 	}
 	recordFile(state, hash, state.downloadName)
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	verbose.Progressf("  Installed %s\n", state.downloadName)
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }

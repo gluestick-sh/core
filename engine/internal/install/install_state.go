@@ -20,10 +20,10 @@ import (
 // - Phase 1 (Resolve): pkgName, pinVersion, targetVersion, installArch, manifest, etc.
 // - Phase 2 (Fetch): urlHashPairs, downloadResults, fromCache, cachedEntry, etc.
 // - Phase 3 (Deploy): installDir, appsDir, installedFiles, totalSize
-// - Shared infrastructure: prof (profiling), prog (progress handler)
+// - Shared infrastructure: timings (optional), prog (progress handler)
 type installState struct {
 	// Shared context
-	engine   *runtime.Engine
+	engine   *runtime.Services
 	ctx      context.Context
 	req      *etypes.InstallRequest
 	reporter etypes.ProgressReporter
@@ -61,7 +61,7 @@ type installState struct {
 	totalSize      int64
 
 	// Shared infrastructure
-	prof *installPhaseProfile
+	timings *installPhaseTimings
 	prog progress.Handler
 
 	// Outcome flags (set by resolve/deploy phases)
@@ -73,7 +73,7 @@ type installState struct {
 // This function allocates a new installation state structure and sets up:
 // - Progress handler for extraction/file operations
 // - Context cancellation support for subprocesses
-// - Optional profiling for performance analysis
+// - Optional per-phase install timings (GLUE_TIMINGS output)
 //
 // Parameters:
 //   - e: Runtime engine with access to cache, store, downloader, etc.
@@ -83,7 +83,7 @@ type installState struct {
 //   - reporter: Progress reporter for UI updates (may be nil)
 //
 // Returns an initialized installState ready for the resolve phase.
-func newInstallState(e *runtime.Engine,
+func newInstallState(e *runtime.Services,
 	ctx context.Context,
 	pkgRef string, req *etypes.InstallRequest,
 	reporter etypes.ProgressReporter,
@@ -100,9 +100,9 @@ func newInstallState(e *runtime.Engine,
 		overrideRef:    runtime.ManifestLookupRef(pkgRef),
 	}
 
-	// Setup profiling
-	if profileEnabled(req) {
-		state.prof = &installPhaseProfile{enabled: true}
+	// Setup install timings
+	if timingsEnabled(req) {
+		state.timings = &installPhaseTimings{enabled: true}
 	}
 
 	// Setup progress handler
@@ -118,7 +118,7 @@ func newInstallState(e *runtime.Engine,
 // This function should be called via defer when the installation completes.
 // It ensures that:
 // - Extractor context is reset to prevent goroutine leaks
-// - Profile data is emitted if profiling was enabled
+// - Timing data is emitted when timings were requested
 //
 // This is safe to call multiple times and on nil states.
 func (s *installState) cleanup() {
@@ -129,7 +129,7 @@ func (s *installState) cleanup() {
 	if s.engine != nil && s.engine.Extractor != nil {
 		s.engine.Extractor.SetContext(context.Background())
 	}
-	if s.prof != nil {
-		s.prof.emit()
+	if s.timings != nil {
+		s.timings.emit()
 	}
 }

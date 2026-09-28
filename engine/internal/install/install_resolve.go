@@ -107,7 +107,7 @@ func resolveInstallPhase(state *installState) error {
 					return nil
 				}
 				if orphanInstallRepairable(root, state.pkgName, state.targetVersion, m) {
-					if err := repairOrphanInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.targetVersion, m, state.req, state.reporter, state.prof); err != nil {
+					if err := repairOrphanInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.targetVersion, m, state.req, state.reporter, state.timings); err != nil {
 						return err
 					}
 					state.done = true
@@ -116,7 +116,7 @@ func resolveInstallPhase(state *installState) error {
 				verbose.Progressf("  Previous install incomplete; reinstalling...\n")
 				state.clearInstallDir = true
 			} else if LocalVersionReadyToActivate(root, state.pkgName, state.targetVersion, m) {
-				if err := activateLocalVersion(state.engine, state.ctx, state.pkgRef, state.pkgName, state.targetVersion, m, state.req, state.reporter, state.prof); err != nil {
+				if err := activateLocalVersion(state.engine, state.ctx, state.pkgRef, state.pkgName, state.targetVersion, m, state.req, state.reporter, state.timings); err != nil {
 					return err
 				}
 				state.done = true

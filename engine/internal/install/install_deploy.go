@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -113,14 +114,14 @@ func deployMultiArtifacts(state *installState) error {
 		}
 	}
 
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 
 	verbose.Progressf("  Installed %d file(s)\n", linked)
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployFromCache handles deployment from cache
@@ -205,8 +206,8 @@ func deployPortableExeFromCache(state *installState, archiveHash string, report 
 		return err
 	}
 
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 
 	verbose.Progressf("  Installed %s (portable exe)\n", state.downloadName)
@@ -220,7 +221,7 @@ func deployPortableExeFromCache(state *installState, archiveHash string, report 
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deploySFXFromCache handles SFX (self-extracting archive) deployment from cache.
@@ -245,8 +246,8 @@ func deploySFXFromCache(state *installState, archiveHash string, report func(ety
 		return err
 	}
 
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 
 	verbose.Progressf("  Installed %s (SFX, pre_install extract)\n", state.downloadName)
@@ -260,7 +261,7 @@ func deploySFXFromCache(state *installState, archiveHash string, report func(ety
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployArchiveFromCache handles archive deployment from cache.
@@ -300,8 +301,8 @@ func deployArchiveFromCache(state *installState, fileExt string, archiveHash str
 	extractDir := m.GetExtractDirForInstall(installArch)
 
 	linked, err := LinkFromCache(state.engine.Store, state.installDir, state.cachedEntry, downloadName, fileExt, archiveHash, extractTo, extractDir, m, installArch, state.pkgName)
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	if err != nil {
 		return err
@@ -326,7 +327,7 @@ func deployArchiveFromCache(state *installState, fileExt string, archiveHash str
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployZipArchive handles ZIP archive deployment from download.
@@ -370,7 +371,7 @@ func deployZipArchive(state *installState, casPath string, archiveHash string, r
 //   - report: Progress reporting callback
 // Returns error if extraction or adoption fails.
 func deployZipExtractAndAdopt(state *installState, casPath, extractTo, extractDir, archiveHash string, reportIndexProgress func(int64, int64), report func(etypes.Phase, etypes.Status, float64, string, map[string]interface{}, int64, int64)) error {
-	if err := ensureExtractor7zWithProf(state.engine, state.ctx, state.prof, state.pkgName); err != nil {
+	if err := lifecycle.Ensure7Zip(state.engine, state.ctx, state.pkgName, state.timings.runBootstrap); err != nil {
 		return fmt.Errorf("ensure 7z: %w", err)
 	}
 	if err := cleanInstallDir(state.installDir); err != nil {
@@ -401,8 +402,8 @@ func deployZipExtractAndAdopt(state *installState, casPath, extractTo, extractDi
 	}
 
 	var extractErr error
-	if state.prof != nil {
-		extractErr = state.prof.runExtract(runExtractAdopt)
+	if state.timings != nil {
+		extractErr = state.timings.runExtract(runExtractAdopt)
 	} else {
 		extractErr = runExtractAdopt()
 	}
@@ -429,7 +430,7 @@ func deployZipExtractAndAdopt(state *installState, casPath, extractTo, extractDi
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployZipFromIndex handles ZIP deployment using existing member index.
@@ -456,8 +457,8 @@ func deployZipFromIndex(state *installState, archiveHash string, zipFiles map[st
 	linked, err := LinkExtractedFiles(state.engine.Store, state.installDir, extractTo, extractDir, zipFiles, func(hash, name string) {
 		recordFile(state, hash, name)
 	})
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	if err != nil {
 		return err
@@ -480,7 +481,7 @@ func deployZipFromIndex(state *installState, archiveHash string, zipFiles map[st
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployMSI handles MSI (Microsoft Installer) deployment.
@@ -526,11 +527,11 @@ func deployMSIAdmin(state *installState, _ /*casPath*/, hash string, extractDir 
 		return fmt.Errorf("link %s: %w", state.downloadName, err)
 	}
 	recordFile(state, hash, state.downloadName)
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	verbose.Progressf("  Extracting MSI via administrative install...\n")
-	if err := state.prof.runExtract(func() error {
+	if err := state.timings.runExtract(func() error {
 		return extractMSIAdministrative(state.installDir, msiTarget, extractDir)
 	}); err != nil {
 		return err
@@ -542,7 +543,7 @@ func deployMSIAdmin(state *installState, _ /*casPath*/, hash string, extractDir 
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".msi", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployMSIStandard handles standard MSI extraction using 7-Zip.
@@ -557,13 +558,13 @@ func deployMSIAdmin(state *installState, _ /*casPath*/, hash string, extractDir 
 func deployMSIStandard(state *installState, casPath, _ /*hash*/ string, extractDir string, _ /* reportIndexProgress */ func(int64, int64), report func(etypes.Phase, etypes.Status, float64, string, map[string]interface{}, int64, int64)) error {
 	//_ = reportIndexProgress // progress callback not supported by underlying MSI functions
 	reportDeployStart(report, false)
-	if err := ensureExtractor7zWithProf(state.engine, state.ctx, state.prof, state.pkgName); err != nil {
+	if err := lifecycle.Ensure7Zip(state.engine, state.ctx, state.pkgName, state.timings.runBootstrap); err != nil {
 		return fmt.Errorf("ensure 7z: %w", err)
 	}
 
 	verbose.Progressf("  Extracting MSI (this may take a while)...\n")
 	var files map[string]string
-	if err := state.prof.runExtract(func() error {
+	if err := state.timings.runExtract(func() error {
 		var err error
 		_, files, err = state.engine.Extractor.ExtractMSI(casPath)
 		if err != nil {
@@ -585,8 +586,8 @@ func deployMSIStandard(state *installState, casPath, _ /*hash*/ string, extractD
 	if err != nil {
 		return err
 	}
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	if linked == 0 {
 		return fmt.Errorf("no files were linked from msi")
@@ -600,7 +601,7 @@ func deployMSIStandard(state *installState, casPath, _ /*hash*/ string, extractD
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".msi", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployArchiveFromCacheExtract extracts archive from cache when no files were linked.
@@ -666,8 +667,8 @@ func deployTarExtractAndAdopt(state *installState, casPath, extractTo, extractDi
 	}
 
 	var extractErr error
-	if state.prof != nil {
-		extractErr = state.prof.runExtract(runExtractAdopt)
+	if state.timings != nil {
+		extractErr = state.timings.runExtract(runExtractAdopt)
 	} else {
 		extractErr = runExtractAdopt()
 	}
@@ -691,7 +692,7 @@ func deployTarExtractAndAdopt(state *installState, casPath, extractTo, extractDi
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".tar", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deploy7zExtractAndAdopt handles 7z archive extraction and adoption into CAS store.
@@ -732,7 +733,7 @@ func deployTarArchive(state *installState, casPath string, archiveHash string, r
 
 // deploy7zArchive handles 7z archive deployment from download (e.g. zoom's dl.7z SFX).
 func deploy7zArchive(state *installState, casPath, archiveHash string, reportIndexProgress func(int64, int64), report func(etypes.Phase, etypes.Status, float64, string, map[string]interface{}, int64, int64)) error {
-	if err := ensureExtractor7zWithProf(state.engine, state.ctx, state.prof, state.pkgName); err != nil {
+	if err := lifecycle.Ensure7Zip(state.engine, state.ctx, state.pkgName, state.timings.runBootstrap); err != nil {
 		return fmt.Errorf("ensure 7z: %w", err)
 	}
 
@@ -742,7 +743,7 @@ func deploy7zArchive(state *installState, casPath, archiveHash string, reportInd
 	extractDir := m.GetExtractDirForInstall(installArch)
 
 	reportDeployStart(report, archiveMemberIndexReady(state.engine.Downloader, archiveHash))
-	count, err := installArchiveFromMemberIndex(state.engine, state.prof, casPath, state.installDir, state.downloadName, archiveHash, extractTo, extractDir, state.installedFiles, &state.totalSize, reportIndexProgress)
+	count, err := installArchiveFromMemberIndex(state.engine, state.timings, casPath, state.installDir, state.downloadName, archiveHash, extractTo, extractDir, state.installedFiles, &state.totalSize, reportIndexProgress)
 	if err != nil {
 		return extractPhaseError(err)
 	}
@@ -753,7 +754,7 @@ func deploy7zArchive(state *installState, casPath, archiveHash string, reportInd
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, state.fileExt, state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }
 
 // deployTarFromIndex deploys tar archive by linking files from existing member index.
@@ -777,8 +778,8 @@ func deployTarFromIndex(state *installState, archiveHash string, tarFiles map[st
 	linked, err := LinkExtractedFiles(state.engine.Store, state.installDir, extractTo, extractDir, tarFiles, func(hash, name string) {
 		recordFile(state, hash, name)
 	})
-	if state.prof != nil {
-		state.prof.addLink(linkStart)
+	if state.timings != nil {
+		state.timings.addLink(linkStart)
 	}
 	if err != nil {
 		return err
@@ -791,5 +792,5 @@ func deployTarFromIndex(state *installState, archiveHash string, tarFiles map[st
 
 	return finalizePackageInstall(state.engine, state.ctx, state.pkgRef, state.pkgName, state.manifest,
 		state.installDir, state.downloadName, ".tar", state.installedFiles, state.totalSize,
-		state.req, state.reporter, state.prof)
+		state.req, state.reporter, state.timings)
 }

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"fmt"
 
 	"github.com/gluestick-sh/core/manifest"
@@ -11,7 +12,7 @@ func RefreshPackageShellIntegration(installDir string, m *manifest.Manifest, ins
 	if err := repairSevenZipArm64Layout(installDir); err != nil {
 		return fmt.Errorf("repair 7zip arm64 layout: %w", err)
 	}
-	if err := createPackageShortcuts(installDir, m, installArch); err != nil {
+	if err := lifecycle.CreatePackageShortcuts(installDir, m, installArch); err != nil {
 		return err
 	}
 	applyInstallContextRegistry(installDir)

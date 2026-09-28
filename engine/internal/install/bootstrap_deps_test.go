@@ -38,7 +38,7 @@ func TestCatalogNeedsDark(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e, err := runtime.NewEngine(&etypes.EngineConfig{RootDir: root})
+	e, err := runtime.NewServices(&etypes.EngineConfig{RootDir: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestResolveGitPath_findsGit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e, err := runtime.NewEngine(&etypes.EngineConfig{RootDir: root})
+	e, err := runtime.NewServices(&etypes.EngineConfig{RootDir: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestResolveSevenZipPath_prefersGlueBin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e, err := runtime.NewEngine(&etypes.EngineConfig{RootDir: root})
+	e, err := runtime.NewServices(&etypes.EngineConfig{RootDir: root})
 	if err != nil {
 		t.Fatal(err)
 	}

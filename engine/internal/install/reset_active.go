@@ -1,17 +1,18 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/shim"
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/gluestick-sh/core/apps"
 	"github.com/gluestick-sh/core/engine/internal/runtime"
-	"github.com/gluestick-sh/core/manifest"
 )
 
 // ResetPackage relinks current, shims, and shortcuts for an installed version.
-func ResetPackage(e *runtime.Engine, appsDir, shimsMetaDir, pkgRef string) error {
+func ResetPackage(e *runtime.Services, appsDir, shimsMetaDir, pkgRef string) error {
 	pkgName, targetVer := runtime.ParsePkgRef(pkgRef)
 	pkgRoot := apps.PkgRoot(e.Config.RootDir, pkgName)
 
@@ -35,12 +36,12 @@ func ResetPackage(e *runtime.Engine, appsDir, shimsMetaDir, pkgRef string) error
 		return fmt.Errorf("link current: %w", err)
 	}
 
-	m, err := LoadManifestForReset(e, installDir, pkgName)
+	m, err := lifecycle.LoadManifestForReset(e, installDir, pkgName)
 	if err != nil {
 		return err
 	}
 
-	if _, err := removeShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName); err != nil {
+	if _, err := shim.RemoveShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName); err != nil {
 		return fmt.Errorf("remove shims: %w", err)
 	}
 
@@ -61,15 +62,3 @@ func ResetPackage(e *runtime.Engine, appsDir, shimsMetaDir, pkgRef string) error
 	return nil
 }
 
-// LoadManifestForReset returns the manifest for a reset, preferring the saved install
-// record and falling back to the bucket registry.
-func LoadManifestForReset(e *runtime.Engine, installDir, pkgName string) (*manifest.Manifest, error) {
-	if rec, err := apps.LoadInstallRecord(installDir); err == nil && rec.Manifest != nil {
-		return rec.Manifest, nil
-	}
-	_, m, err := e.BucketRegistry.GetManifestPath(pkgName)
-	if err != nil {
-		return nil, fmt.Errorf("load manifest: %w", err)
-	}
-	return m, nil
-}

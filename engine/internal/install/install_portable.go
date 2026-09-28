@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gluestick-sh/core/manifest"
+	"github.com/gluestick-sh/core/shim"
 	"github.com/gluestick-sh/core/store"
 )
 
@@ -33,7 +34,7 @@ func isPortableExeInstall(m *manifest.Manifest, downloadName, installArch string
 		return true
 	}
 	for _, binPattern := range bins {
-		binName, _ := ParseBinPattern(binPattern)
+		binName, _ := shim.ParseBinPattern(binPattern)
 		if binName == "" {
 			continue
 		}
@@ -109,7 +110,7 @@ func skipArchiveBlobOnLink(fileExt, downloadName string, m *manifest.Manifest, i
 
 // resolveInstalledBinPath locates an installed binary when manifest bin names differ from the downloaded exe.
 func resolveInstalledBinPath(installDir, binName, downloadName string) (exePath, relBin string, ok bool) {
-	for _, candidate := range ResolveBinCandidates(installDir, binName, downloadName) {
+	for _, candidate := range shim.ResolveBinCandidates(installDir, binName, downloadName) {
 		if _, err := os.Stat(candidate); err == nil {
 			rel, err := filepath.Rel(installDir, candidate)
 			if err != nil {
@@ -138,75 +139,6 @@ func resolveInstalledBinPath(installDir, binName, downloadName string) (exePath,
 	return "", "", false
 }
 
-func shouldSkipPortableScanDir(name string) bool {
-	lower := strings.ToLower(name)
-	switch lower {
-	case "node_modules", ".git", "__pycache__":
-		return true
-	default:
-		return strings.HasPrefix(name, ".")
-	}
-}
-
-// ResolveBinCandidates returns possible on-disk locations for a manifest bin, checking the
-// install root and one level of subdirectories (including Scoop's "_"-prefixed variants).
-func ResolveBinCandidates(installDir, binName, downloadName string) []string {
-	out := installRootBinCandidates(installDir, binName, downloadName)
-	seen := make(map[string]struct{}, len(out))
-	for _, p := range out {
-		seen[p] = struct{}{}
-	}
-	if binName != "" {
-		entries, err := os.ReadDir(installDir)
-		if err == nil {
-			for _, entry := range entries {
-				if !entry.IsDir() || shouldSkipPortableScanDir(entry.Name()) {
-					continue
-				}
-				for _, rel := range []string{binName, "_" + binName} {
-					path := filepath.Join(installDir, entry.Name(), rel)
-					if _, ok := seen[path]; ok {
-						continue
-					}
-					if _, err := os.Stat(path); err != nil {
-						continue
-					}
-					seen[path] = struct{}{}
-					out = append(out, path)
-				}
-			}
-		}
-	}
-	return out
-}
-
-func installRootBinCandidates(installDir, binName, downloadName string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	add := func(path string) {
-		if path == "" {
-			return
-		}
-		if _, ok := seen[path]; ok {
-			return
-		}
-		if _, err := os.Stat(path); err != nil {
-			return
-		}
-		seen[path] = struct{}{}
-		out = append(out, path)
-	}
-	if binName != "" {
-		add(filepath.Join(installDir, binName))
-		add(filepath.Join(installDir, "_"+binName))
-		add(filepath.Join(installDir, "SourceDir", binName))
-	}
-	if downloadName != "" {
-		add(filepath.Join(installDir, downloadName))
-	}
-	return out
-}
-
 func linkPortableExe(store *store.Store, installDir, downloadName, hash string, recordFile func(hash, rel string)) error {
 	targetPath := filepath.Join(installDir, downloadName)
 	if err := store.Link(hash, targetPath); err != nil {
@@ -227,12 +159,12 @@ func installBinLayoutReady(installDir string, m *manifest.Manifest) bool {
 		return true
 	}
 	for _, binPattern := range m.Binaries() {
-		binName, _ := ParseBinPattern(binPattern)
+		binName, _ := shim.ParseBinPattern(binPattern)
 		if binName == "" {
 			continue
 		}
 		found := false
-		for _, candidate := range installRootBinCandidates(installDir, binName, "") {
+		for _, candidate := range shim.InstallRootBinCandidates(installDir, binName, "") {
 			if _, err := os.Stat(candidate); err == nil {
 				found = true
 				break
@@ -252,7 +184,7 @@ func nestedDirWithManifestBinLayout(installDir string, m *manifest.Manifest) (st
 	}
 	var matches []string
 	for _, entry := range entries {
-		if !entry.IsDir() || shouldSkipPortableScanDir(entry.Name()) {
+		if !entry.IsDir() || shim.ShouldSkipPortableScanDir(entry.Name()) {
 			continue
 		}
 		sub := filepath.Join(installDir, entry.Name())
@@ -309,7 +241,7 @@ func ensureExtractDirFlattened(installDir string, m *manifest.Manifest, installA
 
 func validateManifestBins(installDir string, m *manifest.Manifest) error {
 	for _, binPattern := range m.Binaries() {
-		binName, _ := ParseBinPattern(binPattern)
+		binName, _ := shim.ParseBinPattern(binPattern)
 		if binName == "" {
 			continue
 		}
