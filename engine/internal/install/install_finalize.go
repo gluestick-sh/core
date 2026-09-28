@@ -1,6 +1,8 @@
-﻿package install
+package install
 
 import (
+	"github.com/gluestick-sh/core/shim"
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -14,20 +16,6 @@ import (
 	"github.com/gluestick-sh/core/verbose"
 )
 
-// DownloadNameFromManifest extracts the download filename from a manifest.
-// This function parses the first URL in the manifest and returns the
-// local filename that should be used for the download.
-// Parameters:
-//   - m: Package manifest
-// Returns the download filename, or empty string if no URLs are defined.
-func DownloadNameFromManifest(m *manifest.Manifest) string {
-	urls := m.GetURLs()
-	if len(urls) == 0 {
-		return ""
-	}
-	return downloadFilename(urls[0])
-}
-
 // packageInCache checks if a package has a cache entry.
 // This is used to determine if a package is already in the content cache,
 // which allows skipping download on reinstall.
@@ -35,7 +23,7 @@ func DownloadNameFromManifest(m *manifest.Manifest) string {
 //   - e: Runtime engine
 //   - pkgName: Package name to check
 // Returns true if the package exists in the cache.
-func packageInCache(e *runtime.Engine, pkgName string) bool {
+func packageInCache(e *runtime.Services, pkgName string) bool {
 	_, ok := e.Cache.Get(pkgName)
 	return ok
 }
@@ -53,15 +41,15 @@ func packageInCache(e *runtime.Engine, pkgName string) bool {
 //   - m: Package manifest
 //   - req: Installation request
 //   - reporter: Progress reporter
-//   - prof: Optional profile for timing
+//   - timings: Optional per-phase install timings
 // Returns error if repair fails or install directory is invalid.
-func repairOrphanInstall(e *runtime.Engine,
+func repairOrphanInstall(e *runtime.Services,
 	ctx context.Context,
 	pkgRef, pkgName, version string,
 	m *manifest.Manifest,
 	req *etypes.InstallRequest,
 	reporter etypes.ProgressReporter,
-	prof *installPhaseProfile,
+	timings *installPhaseTimings,
 ) error {
 	root := e.Config.RootDir
 	installDir := filepath.Join(apps.PkgRoot(root, pkgName), version)
@@ -78,10 +66,10 @@ func repairOrphanInstall(e *runtime.Engine,
 	}
 
 	verbose.Progressf("  Completing registration for %s@%s (files on disk, missing cache index)...\n", pkgName, version)
-	downloadName := DownloadNameFromManifest(m)
+	downloadName := lifecycle.DownloadNameFromManifest(m)
 	return finalizePackageInstall(e,
 		ctx, pkgRef, pkgName, m, installDir, downloadName, getFileExtensionFromURL(m.GetURL()),
-		files, totalSize, req, reporter, prof,
+		files, totalSize, req, reporter, timings,
 	)
 }
 
@@ -112,10 +100,10 @@ func repairOrphanInstall(e *runtime.Engine,
 //   - totalSize: Total size of all installed files
 //   - req: Installation request
 //   - reporter: Progress reporter
-//   - prof: Optional profile for timing
+//   - timings: Optional per-phase install timings
 //
 // Returns error if any finalization step fails.
-func finalizePackageInstall(e *runtime.Engine,
+func finalizePackageInstall(e *runtime.Services,
 	ctx context.Context,
 	pkgRef, pkgName string,
 	m *manifest.Manifest,
@@ -124,7 +112,7 @@ func finalizePackageInstall(e *runtime.Engine,
 	totalSize int64,
 	req *etypes.InstallRequest,
 	reporter etypes.ProgressReporter,
-	prof *installPhaseProfile,
+	timings *installPhaseTimings,
 ) error {
 	report := func(phase etypes.Phase, status etypes.Status, pct float64, key string, args map[string]any, bytes, total int64) {
 		runtime.ReportProgress(reporter, phase, pkgRef, status, pct, key, args, bytes, total)
@@ -136,7 +124,7 @@ func finalizePackageInstall(e *runtime.Engine,
 	persistEntries := m.PersistEntriesForInstall(installArch)
 
 	if len(persistEntries) > 0 && !isExeInstallerScriptInstall(fileExt, m, installArch) {
-		if err := restorePersistOnInstall(installDir, persistDir, persistEntries); err != nil {
+		if err := lifecycle.RestorePersistOnInstall(installDir, persistDir, persistEntries); err != nil {
 			return err
 		}
 	}
@@ -154,17 +142,17 @@ func finalizePackageInstall(e *runtime.Engine,
 				return err
 			}
 		} else if len(hooks) > 0 {
-			if err := prepareInstallDirForPreInstallHooks(installDir, persistDir, persistEntries); err != nil {
+			if err := lifecycle.PrepareInstallDirForPreInstallHooks(installDir, persistDir, persistEntries); err != nil {
 				return err
 			}
-			sevenZip, dark, err := ResolveHookHelpers(e, ctx, hooks, prof, pkgName)
+			sevenZip, dark, err := lifecycle.ResolveHookHelpers(e, ctx, hooks, pkgName, timings.runBootstrap)
 			if err != nil {
 				return err
 			}
-			env := NewHookScriptEnv(e, installDir, downloadName, m.Version, pkgRef, pkgName, installArch, hooks)
+			env := lifecycle.NewHookScriptEnv(e, installDir, downloadName, m.Version, pkgRef, pkgName, installArch, hooks)
 			env.SevenZip = sevenZip
 			env.Dark = dark
-			if err := runPreInstallHooks(env); err != nil {
+			if err := lifecycle.RunPreInstallHooks(env); err != nil {
 				return err
 			}
 			if err := refreshInstalledFilesFromDir(e.Store, installDir, installedFiles, &totalSize); err != nil {
@@ -200,7 +188,7 @@ func finalizePackageInstall(e *runtime.Engine,
 				return err
 			}
 		}
-		if err := runManifestPostInstall(e, ctx, pkgRef, pkgName, installDir, downloadName, m.Version, installArch, m, prof); err != nil {
+		if err := runManifestPostInstall(e, ctx, pkgRef, pkgName, installDir, downloadName, m.Version, installArch, m, timings); err != nil {
 			return err
 		}
 		if postInstallNeedsFileIndexRefresh(m.PostInstallHooksForInstall(installArch)) {
@@ -229,13 +217,13 @@ func finalizePackageInstall(e *runtime.Engine,
 	appsDir := filepath.Join(root, "apps")
 	currentDir := filepath.Join(pkgRoot, apps.CurrentLinkName)
 	shimsMetaDir := filepath.Join(root, "shims-meta")
-	if _, err := removeShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName); err != nil {
+	if _, err := shim.RemoveShimsForPackage(e.ShimMgr, shimsMetaDir, appsDir, pkgName); err != nil {
 		return fmt.Errorf("remove old shims: %w", err)
 	}
 
 	runShim := func(fn func() error) error { return fn() }
-	if prof != nil {
-		runShim = prof.runShim
+	if timings != nil {
+		runShim = timings.runShim
 	}
 	if err := runShim(func() error {
 		return createPackageShims(e.ShimMgr, shimsMetaDir, pkgName, installDir, currentDir, m)
@@ -247,14 +235,14 @@ func finalizePackageInstall(e *runtime.Engine,
 		return fmt.Errorf("apply env_set: %w", err)
 	}
 
-	if err := createPackageShortcuts(installDir, m, installArch); err != nil {
+	if err := lifecycle.CreatePackageShortcuts(installDir, m, installArch); err != nil {
 		return fmt.Errorf("create shortcuts: %w", err)
 	}
 
 	report(PhaseIndex, StatusRunning, 0, message.ProgressUpdatingCache, nil, 0, 0)
 	runCache := func(fn func() error) error { return fn() }
-	if prof != nil {
-		runCache = prof.runCache
+	if timings != nil {
+		runCache = timings.runCache
 	}
 	if err := runCache(func() error {
 		if err := e.Cache.Add(pkgName, m.Version, installedFiles, totalSize); err != nil {
@@ -266,7 +254,7 @@ func finalizePackageInstall(e *runtime.Engine,
 		return fmt.Errorf("update cache index: %w", err)
 	}
 
-	verbose.Progressf("  %s %s@%s installed\n", successMark(), pkgName, m.Version)
+	verbose.Progressf("  %s %s@%s installed\n", verbose.SuccessMark(), pkgName, m.Version)
 	report(PhaseComplete, StatusSuccess, 100, message.ProgressPackageInstallComplete, map[string]any{
 		"package": pkgName,
 	}, 0, 0)

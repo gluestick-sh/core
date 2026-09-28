@@ -1,6 +1,7 @@
-﻿package install
+package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"context"
 	"fmt"
 	"os"
@@ -39,7 +40,7 @@ func cleanupSevenZipSFXArtifacts(installDir, downloadName string) {
 
 // applySevenZipArm64SFXInstall handles Scoop's arm64 7zip SFX without PowerShell pre_install.
 // Extraction uses the same Go/7z path as other packages (~/.glue/bin/7z.exe when present).
-func applySevenZipArm64SFXInstall(e *runtime.Engine, ctx context.Context, installDir, downloadName, archiveHash string, m *manifest.Manifest) error {
+func applySevenZipArm64SFXInstall(e *runtime.Services, ctx context.Context, installDir, downloadName, archiveHash string, m *manifest.Manifest) error {
 	if manifestBinExistsAtRoot(installDir, m) {
 		cleanupSevenZipSFXArtifacts(installDir, downloadName)
 		return nil
@@ -55,7 +56,7 @@ func applySevenZipArm64SFXInstall(e *runtime.Engine, ctx context.Context, instal
 		}
 	}
 
-	if err := ensureExtractor7zWithProf(e, ctx, nil, "7zip"); err != nil {
+	if err := lifecycle.Ensure7Zip(e, ctx, "7zip", nil); err != nil {
 		return fmt.Errorf("7zip arm64 sfx: %w", err)
 	}
 	if err := e.Extractor.ExtractToDir(sfxPath, installDir, downloadName); err != nil {

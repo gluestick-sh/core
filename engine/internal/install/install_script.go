@@ -1,6 +1,7 @@
-﻿package install
+package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"context"
 	"fmt"
 	"io"
@@ -42,7 +43,7 @@ func runInstallerScript(installDir, downloadName, app, bucket, bucketsDir, persi
 	if installerScriptNeedsInnounp(hooks) && strings.TrimSpace(innounp) == "" {
 		return fmt.Errorf("innounp.exe not found\n\nInno Setup installer scripts need innounp in glue/bin")
 	}
-	if hookHelpersNeedDark(hooks) && strings.TrimSpace(dark) == "" {
+	if lifecycle.HookHelpersNeedDark(hooks) && strings.TrimSpace(dark) == "" {
 		return fmt.Errorf("dark.exe or wix.exe not found\n\nWiX Burn installer scripts need dark or wix in glue/bin")
 	}
 
@@ -60,7 +61,7 @@ func runInstallerScript(installDir, downloadName, app, bucket, bucketsDir, persi
 	procutil.HideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		msg := decodePowerShellOutput(out)
+		msg := lifecycle.DecodePowerShellOutput(out)
 		if msg != "" {
 			return fmt.Errorf("installer.script: %w\n%s", err, msg)
 		}
@@ -81,20 +82,20 @@ func buildInstallerScript(installDir, downloadName, app, bucket, bucketsDir, per
 	return fmt.Sprintf("%s\r\n$glue_interactive = %s; $global = $false; $original_dir = %s; $dir = %s; $fname = %s; $app = %s; $bucket = %s; $bucketsdir = %s; $persist_dir = %s; $architecture = %s; $glue_old_path = $env:PATH; $env:PATH = \"$dir;$glue_old_path\"; Push-Location -LiteralPath $dir; trap { Pop-Location; $env:PATH = $glue_old_path; throw $_ }\r\n%s\r\nPop-Location; $env:PATH = $glue_old_path",
 		scoopInstallerHelpersPreamble(sevenZip, innounp, dark),
 		glueInteractive,
-		psSingleQuoted(installDir),
-		psSingleQuoted(installDir),
-		psSingleQuoted(downloadName),
-		psSingleQuoted(app),
-		psSingleQuoted(bucket),
-		psSingleQuoted(bucketsDir),
-		psSingleQuoted(persistDir),
-		psSingleQuoted(architecture),
+		lifecycle.PsSingleQuoted(installDir),
+		lifecycle.PsSingleQuoted(installDir),
+		lifecycle.PsSingleQuoted(downloadName),
+		lifecycle.PsSingleQuoted(app),
+		lifecycle.PsSingleQuoted(bucket),
+		lifecycle.PsSingleQuoted(bucketsDir),
+		lifecycle.PsSingleQuoted(persistDir),
+		lifecycle.PsSingleQuoted(architecture),
 		body,
 	)
 }
 
 func scoopInstallerHelpersPreamble(sevenZip, innounp, dark string) string {
-	preamble := scoopPathEnvHelpersPreamble() + fmt.Sprintf(`$global:GLUE_INNOUNP = %s
+	preamble := lifecycle.ScoopPathEnvHelpersPreamble() + fmt.Sprintf(`$global:GLUE_INNOUNP = %s
 function Get-HelperPath {
   param(
     [Parameter(Mandatory=$true,Position=0)][ValidateSet('7zip','Innounp')][String]$Helper
@@ -120,16 +121,16 @@ function get_config([string]$name, $default) {
   if ($name -eq 'USE_LESSMSI') { return $false }
   return $default
 }
-` + scoopCopyTreeAndMovedirHelper() + `
+` + lifecycle.ScoopCopyTreeAndMovedirHelper() + `
 function error([string]$msg) { throw $msg }
 function abort([string]$msg) { throw $msg }
 function warn([string]$msg) { Write-Host $msg }
-`, psSingleQuoted(innounp)) + scoopExpandMsiArchiveHelper()
+`, lifecycle.PsSingleQuoted(innounp)) + lifecycle.ScoopExpandMsiArchiveHelper()
 	if dark != "" {
-		preamble += scoopExpandDarkArchiveHelper(dark)
+		preamble += lifecycle.ScoopExpandDarkArchiveHelper(dark)
 	}
 	if sevenZip != "" {
-		preamble += scoopExpand7zipArchiveHelper(sevenZip)
+		preamble += lifecycle.ScoopExpand7zipArchiveHelper(sevenZip)
 	}
 	return preamble + `
 function Expand-InnoArchive {
@@ -159,7 +160,7 @@ function Expand-InnoArchive {
   if (Test-Path $LogPath) { Remove-Item $LogPath -Force }
   if ($Removal) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }
 }
-` + scoopInvokeExternalCommandHelper() + `
+` + lifecycle.ScoopInvokeExternalCommandHelper() + `
 function is_admin {
   $admin = [Security.Principal.WindowsBuiltInRole]::Administrator
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -179,8 +180,8 @@ func orphanInstallRepairable(root, pkgName, version string, m *manifest.Manifest
 	return manifestBinExistsAtRoot(installDir, m)
 }
 
-func runManifestInstallerHook(e *eruntime.Engine, ctx context.Context, installDir, downloadName, pkgName, pkgRef string, m *manifest.Manifest, installArch string, interactive bool) error {
-	if err := ensureExtractor7zWithProf(e, ctx, nil, pkgName); err != nil {
+func runManifestInstallerHook(e *eruntime.Services, ctx context.Context, installDir, downloadName, pkgName, pkgRef string, m *manifest.Manifest, installArch string, interactive bool) error {
+	if err := lifecycle.Ensure7Zip(e, ctx, pkgName, nil); err != nil {
 		return fmt.Errorf("ensure 7z: %w", err)
 	}
 	sevenZip := e.Extractor.SevenZipPath()
@@ -190,11 +191,11 @@ func runManifestInstallerHook(e *eruntime.Engine, ctx context.Context, installDi
 	innounp := ""
 	hooks := m.InstallerScriptHooksForInstall(installArch)
 	needsInnounp := installerScriptNeedsInnounp(hooks)
-	innounp, err := ensureInnounpWithProf(e, ctx, nil, needsInnounp, pkgName)
+	innounp, err := ensureInnounpWithTimings(e, ctx, nil, needsInnounp, pkgName)
 	if err != nil {
 		return err
 	}
-	dark, err := ensureDarkWithProf(e, ctx, nil, hooks, pkgName)
+	dark, err := lifecycle.EnsureDark(e, ctx, hooks, pkgName, nil)
 	if err != nil {
 		return err
 	}
@@ -208,9 +209,9 @@ func runManifestInstallerHook(e *eruntime.Engine, ctx context.Context, installDi
 	)
 }
 
-func extractViaInstallerScript(e *eruntime.Engine, 
+func extractViaInstallerScript(e *eruntime.Services, 
 	ctx context.Context,
-	prof *installPhaseProfile,
+	timings *installPhaseTimings,
 	pkgRef, installDir, downloadName, archiveHash, installArch string,
 	m *manifest.Manifest,
 	interactive bool,
@@ -219,7 +220,7 @@ func extractViaInstallerScript(e *eruntime.Engine,
 	reportIndexProgress func(processed, total int64),
 ) (int, error) {
 	pkgName, _ := eruntime.ParsePkgRef(pkgRef)
-	if err := ensureExtractor7zWithProf(e, ctx, prof, pkgName); err != nil {
+	if err := lifecycle.Ensure7Zip(e, ctx, pkgName, timings.runBootstrap); err != nil {
 		return 0, fmt.Errorf("ensure 7z: %w", err)
 	}
 	sevenZip := e.Extractor.SevenZipPath()
@@ -229,7 +230,7 @@ func extractViaInstallerScript(e *eruntime.Engine,
 	innounp := ""
 	scriptHooks := m.InstallerScriptHooksForInstall(installArch)
 	needsInnounp := installerScriptNeedsInnounp(scriptHooks)
-	innounp, err := ensureInnounpWithProf(e, ctx, prof, needsInnounp, pkgName)
+	innounp, err := ensureInnounpWithTimings(e, ctx, timings, needsInnounp, pkgName)
 	if err != nil {
 		return 0, err
 	}
@@ -238,27 +239,27 @@ func extractViaInstallerScript(e *eruntime.Engine,
 	} else {
 		verbose.Progressf("  Running installer script...\n")
 	}
-	if err := prof.runExtract(func() error {
+	if err := timings.runExtract(func() error {
 		if err := cleanInstallDir(installDir); err != nil {
 			return fmt.Errorf("clean install dir: %w", err)
 		}
 		persistDir := filepath.Join(e.Config.RootDir, "persist", pkgName)
 		persistEntries := m.PersistEntriesForInstall(installArch)
-		if err := restorePersistOnInstall(installDir, persistDir, persistEntries); err != nil {
+		if err := lifecycle.RestorePersistOnInstall(installDir, persistDir, persistEntries); err != nil {
 			return err
 		}
-		if err := prepareInstallDirForPreInstallHooks(installDir, persistDir, persistEntries); err != nil {
+		if err := lifecycle.PrepareInstallDirForPreInstallHooks(installDir, persistDir, persistEntries); err != nil {
 			return err
 		}
 		preHooks := m.PreInstallHooksForInstall(installArch)
-		dark, err := ensureDarkWithProf(e, ctx, prof, preHooks, pkgName)
+		dark, err := lifecycle.EnsureDark(e, ctx, preHooks, pkgName, timings.runBootstrap)
 		if err != nil {
 			return err
 		}
-		preEnv := NewHookScriptEnv(e, installDir, downloadName, m.Version, pkgRef, pkgName, installArch, preHooks)
+		preEnv := lifecycle.NewHookScriptEnv(e, installDir, downloadName, m.Version, pkgRef, pkgName, installArch, preHooks)
 		preEnv.SevenZip = sevenZip
 		preEnv.Dark = dark
-		if err := runPreInstallHooks(preEnv); err != nil {
+		if err := lifecycle.RunPreInstallHooks(preEnv); err != nil {
 			return err
 		}
 		if err := prepareInstallerScriptLayout(installDir, downloadName); err != nil {
@@ -267,7 +268,7 @@ func extractViaInstallerScript(e *eruntime.Engine,
 		if err := materializeInstallerFile(e.Store, installDir, downloadName, archiveHash); err != nil {
 			return fmt.Errorf("stage installer: %w", err)
 		}
-		scriptDark, err := ensureDarkWithProf(e, ctx, prof, scriptHooks, pkgName)
+		scriptDark, err := lifecycle.EnsureDark(e, ctx, scriptHooks, pkgName, timings.runBootstrap)
 		if err != nil {
 			return err
 		}
@@ -283,17 +284,17 @@ func extractViaInstallerScript(e *eruntime.Engine,
 			return err
 		}
 		postHooks := m.PostInstallHooksForInstall(installArch)
-		if err := prepareInstallDirForPostInstallHooks(installDir, persistDir, persistEntries); err != nil {
+		if err := lifecycle.PrepareInstallDirForPostInstallHooks(installDir, persistDir, persistEntries); err != nil {
 			return err
 		}
-		postDark, err := ensureDarkWithProf(e, ctx, prof, postHooks, pkgName)
+		postDark, err := lifecycle.EnsureDark(e, ctx, postHooks, pkgName, timings.runBootstrap)
 		if err != nil {
 			return err
 		}
-		postEnv := NewHookScriptEnv(e, installDir, downloadName, m.Version, pkgRef, pkgName, installArch, postHooks)
+		postEnv := lifecycle.NewHookScriptEnv(e, installDir, downloadName, m.Version, pkgRef, pkgName, installArch, postHooks)
 		postEnv.SevenZip = sevenZip
 		postEnv.Dark = postDark
-		return runPostInstallHooks(postEnv)
+		return lifecycle.RunPostInstallHooks(postEnv)
 	}); err != nil {
 		return 0, err
 	}

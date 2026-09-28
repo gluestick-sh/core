@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"context"
@@ -41,13 +41,13 @@ func LocalVersionReadyToActivate(root, pkgName, version string, m *manifest.Mani
 }
 
 // activateLocalVersion switches to an already-installed version instead of downloading again.
-func activateLocalVersion(e *runtime.Engine, 
+func activateLocalVersion(e *runtime.Services, 
 	ctx context.Context,
 	pkgRef, pkgName, version string,
 	m *manifest.Manifest,
 	req *etypes.InstallRequest,
 	reporter etypes.ProgressReporter,
-	prof *installPhaseProfile,
+	timings *installPhaseTimings,
 ) error {
 	report := func(phase etypes.Phase, status etypes.Status, pct float64, key string, args map[string]interface{}, bytes, total int64) {
 		runtime.ReportProgress(reporter, phase, pkgRef, status, pct, key, args, bytes, total)
@@ -58,7 +58,7 @@ func activateLocalVersion(e *runtime.Engine,
 
 	if _, err := apps.LoadInstallRecord(installDir); err != nil {
 		if orphanInstallRepairable(root, pkgName, version, m) {
-			return repairOrphanInstall(e, ctx, pkgRef, pkgName, version, m, req, reporter, prof)
+			return repairOrphanInstall(e, ctx, pkgRef, pkgName, version, m, req, reporter, timings)
 		}
 		return fmt.Errorf("local version %s@%s is incomplete", pkgName, version)
 	}
@@ -88,7 +88,7 @@ func activateLocalVersion(e *runtime.Engine,
 		return err
 	}
 
-	verbose.Progressf("  %s %s@%s activated\n", successMark(), pkgName, version)
+	verbose.Progressf("  %s %s@%s activated\n", verbose.SuccessMark(), pkgName, version)
 	report(PhaseComplete, StatusSuccess, 100, message.ProgressPackageInstallComplete, map[string]interface{}{
 		"package": pkgName,
 	}, 0, 0)

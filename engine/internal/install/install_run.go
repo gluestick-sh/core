@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"context"
@@ -17,17 +17,18 @@ import (
 	"github.com/gluestick-sh/core/store"
 )
 
-// profileEnabled checks if installation profiling is enabled.
-// Profiling tracks timing for each phase (resolve, fetch, deploy, etc.)
-// to help identify performance bottlenecks.
+// timingsEnabled reports whether per-phase install timings were requested
+// (installOptionTimings in the install request options). Timings accumulate
+// wall-clock time for each pipeline phase (resolve, fetch, deploy, finalize) to
+// surface bottlenecks.
 // Parameters:
 //   - req: Installation request with options
-// Returns true if profiling is enabled.
-func profileEnabled(req *etypes.InstallRequest) bool {
+// Returns true if timings are requested.
+func timingsEnabled(req *etypes.InstallRequest) bool {
 	if req.Options == nil {
 		return false
 	}
-	return req.Options["profile"] == "true"
+	return req.Options[installOptionTimings] == "true"
 }
 
 // downloadFileArgs builds progress reporting arguments for download operations.
@@ -57,7 +58,7 @@ func downloadFileArgs(filename string) map[string]interface{} {
 //
 // Returns error if any phase fails. A nil error means the package was
 // successfully installed or was already installed.
-func PackageFull(e *runtime.Engine, ctx context.Context, pkgRef string, req *etypes.InstallRequest, reporter etypes.ProgressReporter) error {
+func PackageFull(e *runtime.Services, ctx context.Context, pkgRef string, req *etypes.InstallRequest, reporter etypes.ProgressReporter) error {
 	// Create and initialize install state
 	state := newInstallState(e, ctx, pkgRef, req, reporter)
 	defer state.cleanup()
@@ -158,80 +159,6 @@ func parseHash(hash string) (algo, value string) {
 	default:
 		return "sha256", value
 	}
-}
-
-// ParseBinPattern parses Scoop bin entries into executable and alias.
-// This is a simplified version that returns just the exe and alias,
-// ignoring any additional default arguments.
-// Parameters:
-//   - pattern: Bin pattern string (e.g., "exe", "exe,alias", "[exe,alias,args]")
-// Returns:
-//   - exe: Executable name/path
-//   - alias: Shim alias (if any)
-func ParseBinPattern(pattern string) (exe, alias string) {
-	exe, alias, _ = ParseBinPatternParts(pattern)
-	return exe, alias
-}
-
-// ParseBinPatternParts parses Scoop bin entries including optional default arguments.
-// Supports multiple formats:
-// - "exe" - just the executable
-// - "exe,alias" - executable with shim alias
-// - "[exe,alias,arg1,arg2]" - executable, alias, and default arguments for shim
-//
-// Parameters:
-//   - pattern: Bin pattern string
-// Returns:
-//   - exe: Executable name/path
-//   - alias: Shim alias (empty if not specified)
-//   - extraArgs: Default arguments to pass through shim (empty if none)
-func ParseBinPatternParts(pattern string) (exe, alias string, extraArgs []string) {
-	pattern = strings.TrimSpace(pattern)
-	if pattern == "" {
-		return "", "", nil
-	}
-
-	var parts []string
-	switch {
-	case strings.HasPrefix(pattern, "["):
-		inner := strings.Trim(pattern, "[]")
-		for _, p := range strings.Split(inner, ",") {
-			parts = append(parts, trimBinToken(p))
-		}
-	case strings.Contains(pattern, ","):
-		for _, p := range strings.Split(pattern, ",") {
-			parts = append(parts, trimBinToken(p))
-		}
-	default:
-		return trimBinToken(pattern), "", nil
-	}
-
-	if len(parts) == 0 || parts[0] == "" {
-		return "", "", nil
-	}
-	exe = parts[0]
-	if len(parts) > 1 {
-		alias = parts[1]
-	}
-	if len(parts) > 2 {
-		extraArgs = append([]string(nil), parts[2:]...)
-	}
-	return exe, alias, extraArgs
-}
-
-// trimBinToken removes surrounding whitespace and quotes from a bin token.
-// Handles both single and double quotes.
-// Parameters:
-//   - s: String to trim
-// Returns the trimmed string without quotes.
-func trimBinToken(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			return s[1 : len(s)-1]
-		}
-	}
-	return strings.Trim(s, "\"'")
 }
 
 type deployProgressReporter func(phase etypes.Phase, status etypes.Status, pct float64, key string, args map[string]interface{}, bytes, total int64)
@@ -379,19 +306,6 @@ func isPlainFileExt(ext string) bool {
 	default:
 		return false
 	}
-}
-
-// downloadFilename returns the archive filename from a download URL.
-// Handles Scoop's URL fragment syntax: "url#/newname.ext"
-// Parameters:
-//   - url: Download URL (may contain fragment)
-// Returns the local filename for the download.
-func downloadFilename(url string) string {
-	parsed, err := manifest.ParseURL(url)
-	if err != nil {
-		return filepath.Base(url)
-	}
-	return parsed.LocalName
 }
 
 // getFileExtensionFromURL determines the file extension from a URL.

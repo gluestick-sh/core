@@ -1,4 +1,4 @@
-﻿// Bootstrap dependency resolution for the Engine.
+// Bootstrap dependency resolution for the Engine.
 //
 // deps_probe.go probes whether tools exist (system PATH or ~/.glue/bin) for doctor
 // and startup notes. This file adds Engine-level path resolution and on-demand
@@ -10,6 +10,7 @@
 package install
 
 import (
+	"github.com/gluestick-sh/core/engine/internal/lifecycle"
 	"context"
 	"fmt"
 	"os"
@@ -23,7 +24,7 @@ import (
 
 // catalogHasMatchingManifest scans every bucket manifest and returns true when
 // match reports a dependency need (e.g. WiX dark for MSI extraction).
-func catalogHasMatchingManifest(e *runtime.Engine, match func(*manifest.Manifest) bool) bool {
+func catalogHasMatchingManifest(e *runtime.Services, match func(*manifest.Manifest) bool) bool {
 	if e == nil || e.BucketRegistry == nil || match == nil {
 		return false
 	}
@@ -52,7 +53,7 @@ func resolveGit(glueRoot string) (string, error) {
 
 // ResolveBootstrappedGitPath returns ~/.glue/bin MinGit when installed and runnable.
 // Unlike ResolveGitPath, it ignores system PATH so callers can show bootstrap state.
-func ResolveBootstrappedGitPath(e *runtime.Engine) (string, error) {
+func ResolveBootstrappedGitPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
@@ -68,7 +69,7 @@ func ResolveBootstrappedGitPath(e *runtime.Engine) (string, error) {
 }
 
 // ResolveBootstrappedSevenZipPath returns ~/.glue/bin/7z.exe when present.
-func ResolveBootstrappedSevenZipPath(e *runtime.Engine) (string, error) {
+func ResolveBootstrappedSevenZipPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
@@ -84,7 +85,7 @@ func ResolveBootstrappedSevenZipPath(e *runtime.Engine) (string, error) {
 }
 
 // ResolveBootstrappedDarkPath returns ~/.glue/bin/wix/wix.exe or dark.exe when present.
-func ResolveBootstrappedDarkPath(e *runtime.Engine) (string, error) {
+func ResolveBootstrappedDarkPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
@@ -95,7 +96,7 @@ func ResolveBootstrappedDarkPath(e *runtime.Engine) (string, error) {
 	wixDir := filepath.Join(root, "bin", "wix")
 	for _, name := range []string{"wix.exe", "dark.exe"} {
 		path := filepath.Join(wixDir, name)
-		if darkExecutableReady(path) {
+		if lifecycle.DarkExecutableReady(path) {
 			return path, nil
 		}
 	}
@@ -103,7 +104,7 @@ func ResolveBootstrappedDarkPath(e *runtime.Engine) (string, error) {
 }
 
 // ResolveBootstrappedInnounpPath returns ~/.glue/bin/innounp/innounp.exe when present.
-func ResolveBootstrappedInnounpPath(e *runtime.Engine) (string, error) {
+func ResolveBootstrappedInnounpPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
@@ -119,7 +120,7 @@ func ResolveBootstrappedInnounpPath(e *runtime.Engine) (string, error) {
 }
 
 // ResolveGitPath returns the first usable git executable (PATH or bootstrap).
-func ResolveGitPath(e *runtime.Engine) (string, error) {
+func ResolveGitPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
@@ -129,24 +130,24 @@ func ResolveGitPath(e *runtime.Engine) (string, error) {
 
 // ResolveSevenZipPath returns the first usable 7-Zip binary (~/.glue/bin, glue
 // 7zip app, or PATH). It does not download; callers use EnsureSevenZipBootstrap.
-func ResolveSevenZipPath(e *runtime.Engine) (string, error) {
+func ResolveSevenZipPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
 	}
-	if path := ResolveLocalSevenZip(root); path != "" {
+	if path := lifecycle.ResolveLocalSevenZip(root); path != "" {
 		return path, nil
 	}
 	return "", fmt.Errorf("7z not found")
 }
 
 // ResolveDarkPath returns the first usable WiX tool (bootstrap, shims, wix/dark apps, or PATH).
-func ResolveDarkPath(e *runtime.Engine) (string, error) {
+func ResolveDarkPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
 	}
-	return resolveDark(root)
+	return lifecycle.ResolveDark(root)
 }
 
 // ManifestMayNeedDark reports whether install/pre_install hooks call expand-darkarchive.
@@ -154,10 +155,10 @@ func ManifestMayNeedDark(m *manifest.Manifest) bool {
 	if m == nil {
 		return false
 	}
-	if hookHelpersNeedDark(m.InstallerScriptHooks()) {
+	if lifecycle.HookHelpersNeedDark(m.InstallerScriptHooks()) {
 		return true
 	}
-	if hookHelpersNeedDark(m.PreInstallHooksForInstall("")) {
+	if lifecycle.HookHelpersNeedDark(m.PreInstallHooksForInstall("")) {
 		return true
 	}
 	return false
@@ -165,13 +166,13 @@ func ManifestMayNeedDark(m *manifest.Manifest) bool {
 
 // CatalogNeedsDark reports whether any bucket manifest needs WiX dark/wix.
 // Used to decide whether to offer WiX bootstrap proactively.
-func CatalogNeedsDark(e *runtime.Engine) bool {
+func CatalogNeedsDark(e *runtime.Services) bool {
 	return catalogHasMatchingManifest(e, ManifestMayNeedDark)
 }
 
 // EnsureGitBootstrap downloads MinGit into ~/.glue/bin when git is missing.
 // No-op on non-Windows; install hooks call bootstrap.EnsureGit directly on Windows.
-func EnsureGitBootstrap(e *runtime.Engine, ctx context.Context) (string, error) {
+func EnsureGitBootstrap(e *runtime.Services, ctx context.Context) (string, error) {
 	if goruntime.GOOS != "windows" {
 		return "", nil
 	}
@@ -182,7 +183,7 @@ func EnsureGitBootstrap(e *runtime.Engine, ctx context.Context) (string, error) 
 }
 
 // EnsureSevenZipBootstrap downloads minimal 7-Zip into ~/.glue/bin when missing.
-func EnsureSevenZipBootstrap(e *runtime.Engine, ctx context.Context) (string, error) {
+func EnsureSevenZipBootstrap(e *runtime.Services, ctx context.Context) (string, error) {
 	if goruntime.GOOS != "windows" {
 		return "", nil
 	}
@@ -193,17 +194,17 @@ func EnsureSevenZipBootstrap(e *runtime.Engine, ctx context.Context) (string, er
 	if err != nil {
 		return "", err
 	}
-	SetSevenZipFromLocal(e)
+	lifecycle.SetSevenZipFromLocal(e)
 	return path, nil
 }
 
 // EnsureDarkBootstrap downloads WiX into ~/.glue/bin when dark/wix is missing.
-func EnsureDarkBootstrap(e *runtime.Engine, ctx context.Context) (string, error) {
+func EnsureDarkBootstrap(e *runtime.Services, ctx context.Context) (string, error) {
 	if goruntime.GOOS != "windows" {
 		return "", nil
 	}
 	if e == nil || e.Bootstrap == nil {
-		return "", darkNotFoundErr(nil)
+		return "", lifecycle.DarkNotFoundErr(nil)
 	}
 	return e.Bootstrap.EnsureDark(ctx)
 }

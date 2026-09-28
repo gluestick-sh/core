@@ -1,8 +1,6 @@
-﻿package install
+package install
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,63 +17,10 @@ func ShimNameForBin(exePath, alias string) string {
 	return shimNameForBin(exePath, alias)
 }
 
-// RemoveShimsForPackage removes shims belonging to pkgName.
-func RemoveShimsForPackage(shimMgr *shim.Manager, shimsMetaDir, appsDir, pkgName string) ([]string, error) {
-	return removeShimsForPackage(shimMgr, shimsMetaDir, appsDir, pkgName)
-}
-
 // CreatePackageShims registers PATH shims for m. Names already provided by another
 // installed package are skipped because the shims directory is a flat namespace.
 func CreatePackageShims(shimMgr *shim.Manager, shimsMetaDir, pkgName, installDir, shimDir string, m *manifest.Manifest) error {
 	return createPackageShims(shimMgr, shimsMetaDir, pkgName, installDir, shimDir, m)
-}
-
-func ensureExtractor7zWithProf(e *runtime.Engine, ctx context.Context, prof *installPhaseProfile, pkgName string) error {
-	runBootstrap := func(fn func() error) error {
-		if prof != nil {
-			return prof.runBootstrap(fn)
-		}
-		return fn()
-	}
-	// Installing the 7zip package itself may use the minimal 7za bootstrap.
-	// Every other package that extracts archives (including NSIS #/dl.7z) needs
-	// the full 7-Zip build with 7z.dll codecs.
-	needFull := pkgName != "7zip"
-	if needFull {
-		if SetFullSevenZipFromLocal(e) {
-			cleanupSevenZipSeeds(e)
-			return nil
-		}
-	} else if SetSevenZipFromLocal(e) {
-		cleanupSevenZipSeeds(e)
-		return nil
-	}
-	err := runBootstrap(func() error {
-		var (
-			path string
-			bErr error
-		)
-		if needFull {
-			path, bErr = e.Bootstrap.Ensure7zip(ctx)
-		} else {
-			path, bErr = e.Bootstrap.Ensure7z(ctx)
-		}
-		if bErr != nil {
-			return bErr
-		}
-		e.Extractor.Set7zPath(path)
-		return nil
-	})
-	if err == nil {
-		cleanupSevenZipSeeds(e)
-	}
-	return err
-}
-
-func cleanupSevenZipSeeds(e *runtime.Engine) {
-	if e != nil && e.Bootstrap != nil {
-		e.Bootstrap.CleanupSevenZipSeeds()
-	}
 }
 
 func createPackageShims(shimMgr *shim.Manager, shimsMetaDir, pkgName, installDir, shimDir string, m *manifest.Manifest) error {
@@ -90,27 +35,27 @@ func createPackageShims(shimMgr *shim.Manager, shimsMetaDir, pkgName, installDir
 		}
 	}
 	tryCreateShim := func(shimName, shimTarget, label, fromDir string, extraArgs []string) {
-		if owner, conflict := shimOwnedByOtherPackage(shimsMetaDir, shimName, pkgName); conflict {
+		if owner, conflict := shim.OwnedByOtherPackage(shimsMetaDir, shimName, pkgName); conflict {
 			verbose.Progressf("    skipped shim %s (already provided by %s)\n", shimName, owner)
 			return
 		}
 		opts := shim.CreateOpts{Args: extraArgs, Env: shimEnv}
 		if err := shimMgr.Create(shimName, shimTarget, opts); err != nil {
-			verbose.Progressf("    %s failed to create shim for %s: %v\n", failedMark(), label, err)
+			verbose.Progressf("    %s failed to create shim for %s: %v\n", verbose.FailedMark(), label, err)
 			recordErr(fmt.Errorf("shim %s: %w", shimName, err))
 			return
 		}
 		if fromDir != "" {
-			verbose.Progressf("    %s %s (from %s)\n", successMark(), shimName, fromDir)
+			verbose.Progressf("    %s %s (from %s)\n", verbose.SuccessMark(), shimName, fromDir)
 		} else {
-			verbose.Progressf("    %s %s\n", successMark(), shimName)
+			verbose.Progressf("    %s %s\n", verbose.SuccessMark(), shimName)
 		}
 	}
 
 	if bins := m.Binaries(); len(bins) > 0 {
 		verbose.Progressf("  Creating shims...\n")
 		for _, binPattern := range bins {
-			binName, binAlias, extraArgs := ParseBinPatternParts(binPattern)
+			binName, binAlias, extraArgs := shim.ParseBinPatternParts(binPattern)
 			if binName == "" {
 				continue
 			}
@@ -176,108 +121,7 @@ func createPackageShims(shimMgr *shim.Manager, shimsMetaDir, pkgName, installDir
 	return firstErr
 }
 
-func removeShimsForPackage(shimMgr *shim.Manager, shimsMetaDir, appsDir, pkgName string) ([]string, error) {
-	entries, err := os.ReadDir(shimsMetaDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
 
-	var removed []string
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
-			continue
-		}
-
-		configPath := filepath.Join(shimsMetaDir, ent.Name())
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			continue
-		}
-
-		var cfg shim.Config
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			continue
-		}
-
-		if shimMetaBelongsToPackage(cfg.Path, pkgName) {
-			shimName := strings.TrimSuffix(ent.Name(), ".json")
-			if err := shimMgr.Remove(shimName); err != nil {
-				verbose.Progressf("    %s Failed to remove shim %s: %v\n", failedMark(), shimName, err)
-				continue
-			}
-			removed = append(removed, shimName)
-		}
-	}
-
-	return removed, nil
-}
-
-func shimMetaBelongsToPackage(cfgPath, pkgName string) bool {
-	return packageNameFromAppsPath(cfgPath) == pkgName
-}
-
-func shimOwnerPackage(shimsMetaDir, shimName string) string {
-	configPath := filepath.Join(shimsMetaDir, shimName+".json")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return ""
-	}
-	var cfg shim.Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return ""
-	}
-	return packageNameFromAppsPath(cfg.Path)
-}
-
-func shimOwnedByOtherPackage(shimsMetaDir, shimName, pkgName string) (owner string, conflict bool) {
-	owner = shimOwnerPackage(shimsMetaDir, shimName)
-	if owner == "" || owner == pkgName {
-		return "", false
-	}
-	return owner, true
-}
-
-func packageNameFromAppsPath(cfgPath string) string {
-	normalized := filepath.ToSlash(cfgPath)
-	const marker = "/apps/"
-	idx := strings.Index(normalized, marker)
-	if idx < 0 {
-		return ""
-	}
-	rest := normalized[idx+len(marker):]
-	if end := strings.Index(rest, "/"); end >= 0 {
-		return rest[:end]
-	}
-	return ""
-}
-
-// HasShimsForPackage reports whether shims-meta still references the package.
-func HasShimsForPackage(shimsMetaDir, pkgName string) bool {
-	entries, err := os.ReadDir(shimsMetaDir)
-	if err != nil {
-		return false
-	}
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(shimsMetaDir, ent.Name()))
-		if err != nil {
-			continue
-		}
-		var cfg shim.Config
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			continue
-		}
-		if shimMetaBelongsToPackage(cfg.Path, pkgName) {
-			return true
-		}
-	}
-	return false
-}
 
 func shimNameForBin(exePath, alias string) string {
 	if name := normalizeShimAlias(alias); name != "" {
@@ -302,7 +146,7 @@ func normalizeShimAlias(alias string) string {
 }
 
 // GetShimsForPackage lists shim names whose prefix matches pkgName for the given version.
-func GetShimsForPackage(e *runtime.Engine, pkgName, version string) ([]string, error) {
+func GetShimsForPackage(e *runtime.Services, pkgName, version string) ([]string, error) {
 	shims, err := e.ShimMgr.List()
 	if err != nil {
 		return nil, err

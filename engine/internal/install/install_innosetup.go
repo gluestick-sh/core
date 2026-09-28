@@ -1,4 +1,4 @@
-﻿package install
+package install
 
 import (
 	"context"
@@ -57,7 +57,7 @@ func innounpNotFoundErr(cause error) error {
 	return fmt.Errorf("%w\n\nInno Setup packages need innounp in glue/bin", cause)
 }
 
-func ensureInnounpWithProf(e *runtime.Engine, ctx context.Context, prof *installPhaseProfile, needed bool, pkgName string) (string, error) {
+func ensureInnounpWithTimings(e *runtime.Services, ctx context.Context, timings *installPhaseTimings, needed bool, pkgName string) (string, error) {
 	if !needed {
 		return "", nil
 	}
@@ -77,8 +77,8 @@ func ensureInnounpWithProf(e *runtime.Engine, ctx context.Context, prof *install
 		return err
 	}
 	var err error
-	if prof != nil {
-		err = prof.runBootstrap(bootstrap)
+	if timings != nil {
+		err = timings.runBootstrap(bootstrap)
 	} else {
 		err = bootstrap()
 	}
@@ -93,7 +93,7 @@ func ensureInnounpWithProf(e *runtime.Engine, ctx context.Context, prof *install
 }
 
 // ResolveInnounpPath returns the first usable innounp.exe on Windows.
-func ResolveInnounpPath(e *runtime.Engine) (string, error) {
+func ResolveInnounpPath(e *runtime.Services) (string, error) {
 	root := ""
 	if e != nil && e.Config != nil {
 		root = e.Config.RootDir
@@ -102,7 +102,7 @@ func ResolveInnounpPath(e *runtime.Engine) (string, error) {
 }
 
 // EnsureInnounpBootstrap downloads and extracts innounp when it is missing.
-func EnsureInnounpBootstrap(e *runtime.Engine, ctx context.Context) (string, error) {
+func EnsureInnounpBootstrap(e *runtime.Services, ctx context.Context) (string, error) {
 	if e == nil || e.Bootstrap == nil {
 		return "", innounpNotFoundErr(nil)
 	}
@@ -137,15 +137,15 @@ func runInnounpExtract(innounpPath, archivePath, destDir, extractDir string) err
 	return nil
 }
 
-func extractInnoInstaller(e *runtime.Engine, 
+func extractInnoInstaller(e *runtime.Services, 
 	ctx context.Context,
-	prof *installPhaseProfile,
+	timings *installPhaseTimings,
 	root, archivePath, installDir, pkgName string,
 	m *manifest.Manifest,
 	installedFiles map[string]string,
 	totalSize *int64,
 ) error {
-	innounp, err := ensureInnounpWithProf(e, ctx, prof, true, pkgName)
+	innounp, err := ensureInnounpWithTimings(e, ctx, timings, true, pkgName)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func extractInnoInstaller(e *runtime.Engine,
 	}
 
 	verbose.Progressf("  Extracting Inno Setup installer with innounp...\n")
-	if err := prof.runExtract(func() error {
+	if err := timings.runExtract(func() error {
 		return runInnounpExtract(innounp, archivePath, installDir, m.GetExtractDir())
 	}); err != nil {
 		return err
