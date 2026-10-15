@@ -345,6 +345,9 @@ func parseShortcutEntries(raw interface{}) []ShortcutEntry {
 	return out
 }
 
+// binariesFromField normalizes a Scoop bin field into bin entries ("exe" or
+// "[exe,alias]"). The field may be a string, a string array, or a mixed array of
+// strings, [path,alias] pairs, and {name|file, shim|alias} objects.
 func binariesFromField(bin interface{}) []string {
 	if bin == nil {
 		return nil
@@ -358,43 +361,71 @@ func binariesFromField(bin interface{}) []string {
 	case []string:
 		return v
 	case []interface{}:
-		var bins []string
-		for _, b := range v {
-			switch item := b.(type) {
-			case string:
-				bins = append(bins, item)
-			case []interface{}:
-				// Handle nested arrays like ["path.exe", "alias"]
-				if len(item) > 0 {
-					if path, ok := item[0].(string); ok {
-						if len(item) > 1 {
-							if alias, ok := item[1].(string); ok {
-								bins = append(bins, "["+path+","+alias+"]")
-							} else {
-								bins = append(bins, path)
-							}
-						} else {
-							bins = append(bins, path)
-						}
-					}
-				}
-			case map[string]interface{}:
-				exe := binMapString(item, "name", "file")
-				alias := binMapString(item, "shim", "alias")
-				if exe == "" {
-					continue
-				}
-				if alias != "" {
-					bins = append(bins, "["+exe+","+alias+"]")
-				} else {
-					bins = append(bins, exe)
-				}
-			}
-		}
-		return bins
+		return binEntriesFromArray(v)
 	default:
 		return nil
 	}
+}
+
+// binEntriesFromArray converts each bin array element, dropping elements that
+// carry no usable executable.
+func binEntriesFromArray(items []interface{}) []string {
+	var bins []string
+	for _, item := range items {
+		if entry, ok := binEntryFromElement(item); ok {
+			bins = append(bins, entry)
+		}
+	}
+	return bins
+}
+
+// binEntryFromElement converts one bin array element. An empty string is kept so
+// the array length is preserved; unsupported element types are skipped.
+func binEntryFromElement(item interface{}) (entry string, ok bool) {
+	switch v := item.(type) {
+	case string:
+		return v, true
+	case []interface{}:
+		return binEntryFromPair(v)
+	case map[string]interface{}:
+		return binEntryFromObject(v)
+	default:
+		return "", false
+	}
+}
+
+// binEntryFromPair converts a nested [path, alias] pair. A missing or non-string
+// alias is ignored, matching Scoop's lenient parsing.
+func binEntryFromPair(pair []interface{}) (string, bool) {
+	if len(pair) == 0 {
+		return "", false
+	}
+	exe, ok := pair[0].(string)
+	if !ok {
+		return "", false
+	}
+	var alias string
+	if len(pair) > 1 {
+		alias, _ = pair[1].(string)
+	}
+	return binPattern(exe, alias), true
+}
+
+// binEntryFromObject converts a {name|file, shim|alias} bin object.
+func binEntryFromObject(obj map[string]interface{}) (string, bool) {
+	exe := binMapString(obj, "name", "file")
+	if exe == "" {
+		return "", false
+	}
+	return binPattern(exe, binMapString(obj, "shim", "alias")), true
+}
+
+// binPattern renders an executable, pairing an alias when one is set.
+func binPattern(exe, alias string) string {
+	if alias == "" {
+		return exe
+	}
+	return "[" + exe + "," + alias + "]"
 }
 
 func binMapString(m map[string]interface{}, keys ...string) string {

@@ -93,39 +93,18 @@ func EnsureBucketForInstall(e *runtime.Services, ctx context.Context, pkgRef str
 	}
 	bucketName := runtime.PackageBucketName(pkgRef)
 
-	// If buckets list is specified, verify the bucket is allowed
-	if len(buckets) > 0 {
-		allowed := false
-		for _, b := range buckets {
-			if b == bucketName {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return fmt.Errorf("bucket %q is not in allowed buckets list: %v", bucketName, buckets)
-		}
+	if err := ensureBucketAllowed(bucketName, buckets); err != nil {
+		return err
 	}
 
 	bucketDir := filepath.Join(e.Config.RootDir, "buckets", bucketName)
 	if BucketDirHasManifests(bucketDir) {
-		if bucketAlreadyIndexed(e, bucketName) {
-			return nil
-		}
-		if _, err := e.BucketRegistry.Get(bucketName); err != nil {
-			if err := e.BucketRegistry.ReloadFromDisk(); err != nil {
-				return fmt.Errorf("reload buckets: %w", err)
-			}
-		}
-		runtime.SyncSearchIndex(e, false)
-		return nil
+		return refreshBucketIndex(e, bucketName)
 	}
 
 	// Check for cancellation before expensive network operations
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxErr(ctx); err != nil {
+		return err
 	}
 
 	repoURL, ok := bucket.GetKnownBucketURL(bucketName)
@@ -138,20 +117,70 @@ func EnsureBucketForInstall(e *runtime.Services, ctx context.Context, pkgRef str
 	}
 
 	// Check for cancellation before git clone
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxErr(ctx); err != nil {
+		return err
 	}
 
 	if _, err := e.BucketRegistry.Add(bucketName, repoURL); err != nil {
 		return fmt.Errorf("clone bucket %q: %w", bucketName, err)
 	}
-	if err := e.BucketRegistry.ReloadFromDisk(); err != nil {
-		return fmt.Errorf("reload buckets: %w", err)
+	return reloadAndSyncIndex(e)
+}
+
+// ensureBucketAllowed rejects a bucket that is absent from a non-empty allow list.
+func ensureBucketAllowed(bucketName string, buckets []string) error {
+	if len(buckets) == 0 {
+		return nil
+	}
+	for _, b := range buckets {
+		if b == bucketName {
+			return nil
+		}
+	}
+	return fmt.Errorf("bucket %q is not in allowed buckets list: %v", bucketName, buckets)
+}
+
+// refreshBucketIndex reloads the registry when a bucket dir is missing from it and
+// resyncs the search index.
+func refreshBucketIndex(e *runtime.Services, bucketName string) error {
+	if bucketAlreadyIndexed(e, bucketName) {
+		return nil
+	}
+	if _, err := e.BucketRegistry.Get(bucketName); err != nil {
+		if err := reloadBuckets(e); err != nil {
+			return err
+		}
 	}
 	runtime.SyncSearchIndex(e, false)
 	return nil
+}
+
+// reloadAndSyncIndex reloads the bucket registry and resyncs the search index so
+// newly added buckets become searchable. It is the tail of the clone path.
+func reloadAndSyncIndex(e *runtime.Services) error {
+	if err := reloadBuckets(e); err != nil {
+		return err
+	}
+	runtime.SyncSearchIndex(e, false)
+	return nil
+}
+
+// reloadBuckets reloads the bucket registry from disk.
+func reloadBuckets(e *runtime.Services) error {
+	if err := e.BucketRegistry.ReloadFromDisk(); err != nil {
+		return fmt.Errorf("reload buckets: %w", err)
+	}
+	return nil
+}
+
+// ctxErr reports the context error when ctx is already cancelled.
+func ctxErr(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
 }
 
 // bucketAlreadyIndexed checks if a bucket is already loaded in the search index.

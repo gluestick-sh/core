@@ -97,6 +97,11 @@ func TestBuildInstallerScriptExpand7zipCallPatterns(t *testing.T) {
 			name: "sfx_switches",
 			hook: `Expand-7zipArchive "$dir\$fname" -Switches '-t#'`,
 		},
+		{
+			// workbuddy manifest pipes a FileInfo into Expand-7zipArchive without -Path.
+			name: "workbuddy_piped_fileinfo",
+			hook: "Get-Item \"$dir\\`$PLUGINSDIR\\app*.7z\" | Select-Object -First 1 | Expand-7zipArchive -DestinationPath $dir",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,6 +128,29 @@ func TestBuildInstallerScriptExpand7zipCallPatterns(t *testing.T) {
 				t.Fatalf("abort must be defined before Expand-7zipArchive (abort=%d expand=%d)", abortPos, expandPos)
 			}
 		})
+	}
+}
+
+// pipelineBoundPathParam is the $Path parameter every Expand-* helper must declare so
+// manifests that pipe a value in (e.g. workbuddy:
+// Get-Item ... | Select-Object -First 1 | Expand-7zipArchive -DestinationPath $dir)
+// bind correctly, matching upstream Scoop (ValueFromPipeline = $true).
+const pipelineBoundPathParam = "[Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)][string]$Path"
+
+func TestExpandHelpersPathAcceptsPipeline(t *testing.T) {
+	script := buildInstallerScript(
+		`C:\apps\pkg\1.0`, `setup.7z`, `pkg`, `main`, `C:\buckets`, ``,
+		testSevenZip,
+		`C:\Users\test\.glue\apps\innounp\current\innounp.exe`,
+		`C:\Users\test\.glue\apps\dark\3.14.1\dark.exe`,
+		`64bit`, false,
+		[]string{`Expand-7zipArchive "$dir\setup.7z"`},
+	)
+	// buildInstallerScript emits Expand-MsiArchive and Expand-InnoArchive unconditionally and
+	// Expand-DarkArchive/Expand-7zipArchive when dark/7z are configured; all four must
+	// declare $Path with ValueFromPipeline.
+	if got := strings.Count(script, pipelineBoundPathParam); got != 4 {
+		t.Fatalf("expected 4 Expand-* helpers with pipeline-bound $Path, got %d\n%s", got, script)
 	}
 }
 

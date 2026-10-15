@@ -379,7 +379,7 @@ func ScoopExpandMsiArchiveHelper() string {
 	return `
 function Expand-MsiArchive {
   param(
-    [Parameter(Mandatory=$true,Position=0)][string]$Path,
+    [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)][string]$Path,
     [Parameter(Position=1)][string]$DestinationPath = (Split-Path $Path),
     [string]$ExtractDir,
     [string]$Switches,
@@ -430,7 +430,7 @@ func ScoopExpandDarkArchiveHelper(dark string) string {
 	return fmt.Sprintf(`$global:GLUE_DARK = %s
 function Expand-DarkArchive {
   param(
-    [Parameter(Mandatory=$true,Position=0)][string]$Path,
+    [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)][string]$Path,
     [Parameter(Position=1)][string]$DestinationPath = (Split-Path $Path),
     [string]$Switches,
     [switch]$Removal
@@ -568,7 +568,7 @@ func ScoopExpand7zipArchiveHelper(sevenZip string) string {
 	return fmt.Sprintf(`$global:GLUE_7Z = %s
 function Expand-7zipArchive {
   param(
-    [Parameter(Mandatory=$true,Position=0)][string]$Path,
+    [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)][string]$Path,
     [Parameter(Position=1)][string]$DestinationPath = (Split-Path $Path),
     [string]$ExtractDir,
     [string]$Switches,

@@ -116,6 +116,72 @@ func TestDiffReconcileRemovesExtras(t *testing.T) {
 		t.Fatalf("bucketsToRemove = %#v", plan.BucketsToRemove)
 	}
 }
+func TestDiffReconcileKeepsLocalDisplayName(t *testing.T) {
+	current := CoreState{
+		Packages: []Package{{Name: "Orphaned", Version: "1.0"}, {Name: "orphaned", Version: "2.0"}},
+		Buckets:  []Bucket{{Name: "Old", URL: "https://example/old"}},
+	}
+	target := CoreState{
+		Packages: []Package{{Name: "git"}},
+		Buckets:  []Bucket{{Name: "main", URL: "https://example/main"}},
+	}
+
+	plan, err := Diff(current, target, ApplyOptions{Mode: ApplyModeReconcile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both local spellings collapse to one removal, reported with the first
+	// locally recorded name.
+	if len(plan.PackagesToRemove) != 1 || plan.PackagesToRemove[0] != "Orphaned" {
+		t.Fatalf("packagesToRemove = %#v", plan.PackagesToRemove)
+	}
+	if len(plan.BucketsToRemove) != 1 || plan.BucketsToRemove[0] != "Old" {
+		t.Fatalf("bucketsToRemove = %#v", plan.BucketsToRemove)
+	}
+}
+
+func TestDiffMatchesLocalCaseInsensitively(t *testing.T) {
+	current := CoreState{
+		Packages: []Package{{Name: "Git", Version: "2.40", Current: true}},
+		Buckets:  []Bucket{{Name: "Main"}},
+	}
+	target := CoreState{
+		Packages: []Package{{Name: "git", Version: "2.40", Current: true}},
+		Buckets:  []Bucket{{Name: "main"}},
+	}
+
+	plan, err := Diff(current, target, ApplyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Empty() {
+		t.Fatalf("expected empty plan, got %#v", plan)
+	}
+}
+
+func TestDiffTrimsTargetNames(t *testing.T) {
+	target := CoreState{
+		Packages: []Package{{Name: " git ", Bucket: " main ", Version: " 2.40 "}},
+		Buckets:  []Bucket{{Name: " extras ", URL: " https://example/extras "}},
+	}
+
+	plan, err := Diff(CoreState{}, target, ApplyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.BucketsToAdd) != 1 {
+		t.Fatalf("bucketsToAdd = %#v", plan.BucketsToAdd)
+	}
+	if got := plan.BucketsToAdd[0]; got.Name != "extras" || got.URL != "https://example/extras" {
+		t.Fatalf("bucketsToAdd[0] = %#v", got)
+	}
+	if len(plan.PackagesToInstall) != 1 {
+		t.Fatalf("packagesToInstall = %#v", plan.PackagesToInstall)
+	}
+	if got := plan.PackagesToInstall[0]; got.Name != "git" || got.Bucket != "main" || got.Version != "2.40" {
+		t.Fatalf("packagesToInstall[0] = %#v", got)
+	}
+}
 
 func TestInstallRef(t *testing.T) {
 	tests := []struct {

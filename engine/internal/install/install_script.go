@@ -135,7 +135,7 @@ function warn([string]$msg) { Write-Host $msg }
 	return preamble + `
 function Expand-InnoArchive {
   param(
-    [Parameter(Mandatory=$true,Position=0)][string]$Path,
+    [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)][string]$Path,
     [Parameter(Position=1)][string]$DestinationPath = (Split-Path $Path),
     [string]$ExtractDir,
     [string]$Switches,

@@ -73,19 +73,15 @@ func (e *Engine) listInstalledPackages(ctx context.Context,
 	}
 
 	cacheEntries := e.Cache.ListPackages()
+	filterSet := newPackageFilterSet(opts.Filter)
+
 	var packages []*Package
-
-	filterSet := make(map[string]bool, len(opts.Filter))
-	for _, f := range opts.Filter {
-		filterSet[f] = true
-	}
-
 	for _, dirEntry := range pkgEntries {
 		if !dirEntry.IsDir() {
 			continue
 		}
 		name := dirEntry.Name()
-		if len(opts.Filter) > 0 && !filterSet[name] {
+		if !filterSet.matches(name) {
 			continue
 		}
 
@@ -94,51 +90,7 @@ func (e *Engine) listInstalledPackages(ctx context.Context,
 			continue
 		}
 
-		version := diskVersion
-		var installedSize int64
-		var installedAt string
-		if entry, ok := cacheEntries[name]; ok {
-			version = e.resolveInstalledVersion(name, entry.Version)
-			installedSize = entry.Size
-			installedAt = entry.Installed
-		}
-
-		pkg := &Package{
-			Name:          name,
-			Version:       version,
-			InstalledSize: installedSize,
-			InstalledAt:   installedAt,
-		}
-
-		if bucket, manifestInfo := e.getInstalledPackageDetails(name, version); manifestInfo != nil {
-			pkg.Manifest = manifestInfo
-			pkg.Description = manifestInfo.Description
-			pkg.Homepage = manifestInfo.Homepage
-			pkg.Bucket = bucket
-		} else if bucket != "" {
-			pkg.Bucket = bucket
-		}
-
-		detected := e.detectPackageVersion(name, version)
-		pkg.DetectedVersion = detected.DetectedVersion
-		pkg.VersionDetectSrc = detected.Source
-		pkg.ExternallyUpdated = detected.ExternallyUpdated
-
-		if opts.Detailed {
-			shims, err := install.GetShimsForPackage(e.Services, name, version)
-			if err == nil {
-				if pkg.Manifest == nil {
-					pkg.Manifest = &ManifestInfo{}
-				}
-				for _, shim := range shims {
-					pkg.Manifest.Binaries = append(pkg.Manifest.Binaries, BinaryInfo{
-						Name: shim,
-					})
-				}
-			}
-		}
-
-		packages = append(packages, pkg)
+		packages = append(packages, e.buildListedPackage(name, diskVersion, cacheEntries[name], opts.Detailed))
 	}
 
 	// Sort by name
@@ -149,6 +101,88 @@ func (e *Engine) listInstalledPackages(ctx context.Context,
 	return packages, nil
 }
 
+// packageFilterSet matches package names against an optional filter list.
+type packageFilterSet map[string]bool
+
+// newPackageFilterSet builds a lookup for the filter names; an empty filter is nil.
+func newPackageFilterSet(filter []string) packageFilterSet {
+	if len(filter) == 0 {
+		return nil
+	}
+	set := make(packageFilterSet, len(filter))
+	for _, f := range filter {
+		set[f] = true
+	}
+	return set
+}
+
+// matches reports whether name passes the filter; an empty set allows everything.
+func (s packageFilterSet) matches(name string) bool {
+	return len(s) == 0 || s[name]
+}
+
+// buildListedPackage assembles one listed package from disk and index data.
+func (e *Engine) buildListedPackage(name, diskVersion string, entry *cache.PackageEntry, detailed bool) *Package {
+	version := diskVersion
+	var installedSize int64
+	var installedAt string
+	if entry != nil {
+		version = e.resolveInstalledVersion(name, entry.Version)
+		installedSize = entry.Size
+		installedAt = entry.Installed
+	}
+
+	pkg := &Package{
+		Name:          name,
+		Version:       version,
+		InstalledSize: installedSize,
+		InstalledAt:   installedAt,
+	}
+
+	applyInstalledMetadata(e, pkg, name, version)
+
+	detected := e.detectPackageVersion(name, version)
+	pkg.DetectedVersion = detected.DetectedVersion
+	pkg.VersionDetectSrc = detected.Source
+	pkg.ExternallyUpdated = detected.ExternallyUpdated
+
+	if detailed {
+		applyShimBinaries(e, pkg, name, version)
+	}
+
+	return pkg
+}
+
+// applyInstalledMetadata copies bucket and manifest metadata onto the package.
+func applyInstalledMetadata(e *Engine, pkg *Package, name, version string) {
+	bucket, manifestInfo := e.getInstalledPackageDetails(name, version)
+	switch {
+	case manifestInfo != nil:
+		pkg.Manifest = manifestInfo
+		pkg.Description = manifestInfo.Description
+		pkg.Homepage = manifestInfo.Homepage
+		pkg.Bucket = bucket
+	case bucket != "":
+		pkg.Bucket = bucket
+	}
+}
+
+// applyShimBinaries appends the package's shim names to its manifest binaries.
+func applyShimBinaries(e *Engine, pkg *Package, name, version string) {
+	shims, err := install.GetShimsForPackage(e.Services, name, version)
+	if err != nil {
+		return
+	}
+	if pkg.Manifest == nil {
+		pkg.Manifest = &ManifestInfo{}
+	}
+	for _, shim := range shims {
+		pkg.Manifest.Binaries = append(pkg.Manifest.Binaries, BinaryInfo{
+			Name: shim,
+		})
+	}
+}
+
 // extractPackageFromPath extracts package name and version from a shim target path.
 func (e *Engine) extractPackageFromPath(path string) (string, string) {
 	return ParseInstallFilePath(path)
@@ -157,48 +191,72 @@ func (e *Engine) extractPackageFromPath(path string) (string, string) {
 // getInstalledPackageDetails resolves bucket and manifest metadata for an installed package.
 func (e *Engine) getInstalledPackageDetails(name, version string) (bucket string, info *ManifestInfo) {
 	pkgRoot := apps.PkgRoot(e.Config.RootDir, name)
-	ver := version
-	if ver == "" {
-		if v, err := apps.ReadCurrent(pkgRoot); err == nil {
-			ver = v
-		}
-	}
-	if ver != "" {
-		installDir := filepath.Join(pkgRoot, ver)
-		if rec, err := apps.LoadInstallRecord(installDir); err == nil {
-			if rec.Bucket != "" {
-				bucket = rec.Bucket
-			}
-			if rec.Manifest != nil {
-				info = e.createManifestInfo(rec.Manifest)
-			}
-			if bucket != "" {
-				return bucket, info
-			}
-		}
+	bucket, info = e.installRecordDetails(pkgRoot, activeInstallVersion(pkgRoot, version))
+	if bucket != "" {
+		return bucket, info
 	}
 
-	bucketsDir := filepath.Join(e.Config.RootDir, "buckets")
+	// No bucket from the install record: fall back to scanning the bucket repos.
+	// info may still carry manifest metadata read from the record, so keep it.
+	if bucketName, m, ok := findBucketManifest(e.Config.RootDir, name); ok {
+		return bucketName, e.createManifestInfo(m)
+	}
+	return "", info
+}
+
+// activeInstallVersion returns version, or the current-link version when version is empty.
+func activeInstallVersion(pkgRoot, version string) string {
+	if version != "" {
+		return version
+	}
+	if v, err := apps.ReadCurrent(pkgRoot); err == nil {
+		return v
+	}
+	return ""
+}
+
+// installRecordDetails reads bucket/manifest metadata from the version's install record.
+// A missing version or unreadable record yields empty results.
+func (e *Engine) installRecordDetails(pkgRoot, ver string) (bucket string, info *ManifestInfo) {
+	if ver == "" {
+		return "", nil
+	}
+	rec, err := apps.LoadInstallRecord(filepath.Join(pkgRoot, ver))
+	if err != nil {
+		return "", nil
+	}
+	if rec.Bucket != "" {
+		bucket = rec.Bucket
+	}
+	if rec.Manifest != nil {
+		info = e.createManifestInfo(rec.Manifest)
+	}
+	return bucket, info
+}
+
+// findBucketManifest locates name in the bucket repos under root and parses its manifest.
+func findBucketManifest(root, name string) (bucketName string, m *manifest.Manifest, ok bool) {
+	bucketsDir := filepath.Join(root, "buckets")
 	entries, err := os.ReadDir(bucketsDir)
 	if err != nil {
-		return "", info
+		return "", nil, false
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		bucketName := entry.Name()
-		manifestPath := filepath.Join(bucketsDir, bucketName, "bucket", name+".json")
+		candidate := entry.Name()
+		manifestPath := filepath.Join(bucketsDir, candidate, "bucket", name+".json")
 		if _, err := os.Stat(manifestPath); err != nil {
 			continue
 		}
-		m, err := manifest.ParseFile(manifestPath)
+		parsed, err := manifest.ParseFile(manifestPath)
 		if err != nil {
 			continue
 		}
-		return bucketName, e.createManifestInfo(m)
+		return candidate, parsed, true
 	}
-	return "", info
+	return "", nil, false
 }
 
 // groupByPackage groups shims by their package (legacy support)

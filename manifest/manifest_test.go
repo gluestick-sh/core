@@ -337,6 +337,63 @@ func TestBinariesAlias(t *testing.T) {
 		}
 	}
 }
+func TestBinariesArrayVariants(t *testing.T) {
+	m, err := Parse(strings.NewReader(`{
+		"version": "1.0.0",
+		"url": "https://example.com/x.zip",
+		"hash": "abc",
+		"bin": [
+			["single.exe"],
+			["aliased.exe", 42],
+			["", "empty-path"],
+			42,
+			true,
+			null,
+			{"alias": "no-executable"},
+			{}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	got := m.Binaries()
+	want := []string{"single.exe", "aliased.exe", "[,empty-path]"}
+	if len(got) != len(want) {
+		t.Fatalf("Binaries() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Binaries()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBinariesScalarForms(t *testing.T) {
+	tests := []struct {
+		name string
+		bin  interface{}
+		want []string
+	}{
+		{"nil", nil, nil},
+		{"empty string", "", nil},
+		{"single string", "solo.exe", []string{"solo.exe"}},
+		{"string array", []string{"a.exe", "b.exe"}, []string{"a.exe", "b.exe"}},
+		{"unsupported type", 42, nil},
+	}
+	for _, tc := range tests {
+		m := &Manifest{Bin: tc.bin}
+		got := m.Binaries()
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: Binaries() = %v, want %v", tc.name, got, tc.want)
+		}
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: Binaries()[%d] = %q, want %q", tc.name, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
 
 func TestParseInnoSetupFlag(t *testing.T) {
 	m, err := Parse(strings.NewReader(`{

@@ -65,39 +65,65 @@ func (m *Manifest) PersistEntriesForInstall(override string) []PersistEntry {
 	return parsePersistEntries(m.Persist)
 }
 
+// parsePersistEntries normalizes a Scoop persist field into entries. The field
+// may be a path or an array mixing paths and [install, data] pairs.
 func parsePersistEntries(raw interface{}) []PersistEntry {
 	switch v := raw.(type) {
 	case string:
-		if v == "" {
-			return nil
+		if entry, ok := persistEntryFromPath(v); ok {
+			return []PersistEntry{entry}
 		}
-		return []PersistEntry{{Install: v, Data: v}}
+		return nil
 	case []interface{}:
-		var out []PersistEntry
-		for _, item := range v {
-			switch entry := item.(type) {
-			case string:
-				if entry != "" {
-					out = append(out, PersistEntry{Install: entry, Data: entry})
-				}
-			case []interface{}:
-				if len(entry) == 0 {
-					continue
-				}
-				install, _ := entry[0].(string)
-				data := install
-				if len(entry) > 1 {
-					if d, ok := entry[1].(string); ok && d != "" {
-						data = d
-					}
-				}
-				if install != "" {
-					out = append(out, PersistEntry{Install: install, Data: data})
-				}
-			}
-		}
-		return out
+		return persistEntriesFromArray(v)
 	default:
 		return nil
 	}
+}
+
+// persistEntriesFromArray converts persist array elements, dropping elements
+// that carry no install path.
+func persistEntriesFromArray(items []interface{}) []PersistEntry {
+	var out []PersistEntry
+	for _, item := range items {
+		switch element := item.(type) {
+		case string:
+			if entry, ok := persistEntryFromPath(element); ok {
+				out = append(out, entry)
+			}
+		case []interface{}:
+			if entry, ok := persistEntryFromPair(element); ok {
+				out = append(out, entry)
+			}
+		}
+	}
+	return out
+}
+
+// persistEntryFromPath converts a single persist path. An empty path yields no
+// entry; otherwise the path is both the install and the data name.
+func persistEntryFromPath(path string) (PersistEntry, bool) {
+	if path == "" {
+		return PersistEntry{}, false
+	}
+	return PersistEntry{Install: path, Data: path}, true
+}
+
+// persistEntryFromPair converts an [install, data] pair. A missing, non-string,
+// or empty data path falls back to the install path.
+func persistEntryFromPair(pair []interface{}) (PersistEntry, bool) {
+	if len(pair) == 0 {
+		return PersistEntry{}, false
+	}
+	install, _ := pair[0].(string)
+	if install == "" {
+		return PersistEntry{}, false
+	}
+	data := install
+	if len(pair) > 1 {
+		if d, ok := pair[1].(string); ok && d != "" {
+			data = d
+		}
+	}
+	return PersistEntry{Install: install, Data: data}, true
 }

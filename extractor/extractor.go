@@ -217,70 +217,30 @@ func (e *Extractor) extractWith7z(archivePath, archiveType string) (string, map[
 		return "", nil, fmt.Errorf("7z.exe not found in PATH")
 	}
 
-	// Determine which 7z executable to use
-	sevenZip := "7z.exe"
-	if e.sevenZip != "" {
-		sevenZip = e.sevenZip
+	extractDir, cleanup, err := e.newExtractTempDir("extract")
+	if err != nil {
+		return "", nil, err
 	}
+	defer cleanup()
 
-	// Create temp extraction directory
-	extractDir := filepath.Join(e.tempDir, fmt.Sprintf("extract-%s", uniqueTempName()))
-	if err := os.MkdirAll(extractDir, 0755); err != nil {
-		return "", nil, fmt.Errorf("create temp dir: %w", err)
-	}
-	defer os.RemoveAll(extractDir)
-
-	stages := extractStagesForName(filepath.Base(archivePath))
-	if archiveType == "gz" || archiveType == "bz2" || archiveType == "xz" {
-		stages = 2
-	}
+	sevenZip := e.sevenZipBinary()
+	stages := extractStages(archivePath, archiveType)
 
 	decompressStart := time.Now()
 	if err := e.run7zExtract(sevenZip, archivePath, extractDir, 1, stages); err != nil {
 		return "", nil, err
 	}
-	decompressDur := time.Since(decompressStart)
-	verbose.Progressf("  Decompressed archive in %s\n", humanize.FormatDuration(decompressDur))
+	verbose.Progressf("  Decompressed archive in %s\n", humanize.FormatDuration(time.Since(decompressStart)))
 
-	// Handle compound formats like tar.gz, tar.bz2, tar.xz
-	// 7z extracts the outer layer (e.g., gzip), leaving .tar file
-	// Need to extract the tar file as well
-	var tarFile string
-	entries, _ := os.ReadDir(extractDir)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		filePath := filepath.Join(extractDir, entry.Name())
-		// Check by .tar extension
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ".tar") {
-			tarFile = filePath
-			break
-		}
-		// Check by content (for files without .tar extension, e.g., from CAS)
-		if isTarFile(filePath) {
-			tarFile = filePath
-			break
-		}
-	}
-
+	// Compound formats like tar.gz, tar.bz2 and tar.xz leave the inner .tar file
+	// behind after 7z unwraps the outer layer, so extract it as a second pass.
+	tarFile, _ := findNestedTar(extractDir)
 	var intermediateTarHash string
 	if tarFile != "" {
-		// Write the tar file to CAS before extracting it (cached for reuse).
-		tarData, err := os.ReadFile(tarFile)
-		if err == nil {
-			intermediateTarHash, err = e.store.Write(bytes.NewReader(tarData))
-			if err != nil {
-				intermediateTarHash = ""
-			}
-		}
-
-		// This is a compound format, extract the tar file
-		if err := e.run7zExtract(sevenZip, tarFile, extractDir, 2, 2); err != nil {
+		intermediateTarHash, err = e.cacheAndExtractNestedTar(sevenZip, tarFile, extractDir)
+		if err != nil {
 			return "", nil, err
 		}
-		// Remove the intermediate tar file
-		os.Remove(tarFile)
 	} else if stages > 1 {
 		e.finishCompoundExtractProgress()
 	}
@@ -300,6 +260,52 @@ func (e *Extractor) extractWith7z(archivePath, archiveType string) (string, map[
 	return hashBytesFromFile(archivePath), files, nil
 }
 
+// extractStages reports how many 7z passes the archive needs: two for compound
+// formats, and two for the single-layer formats 7z already unwraps in one pass.
+func extractStages(archivePath, archiveType string) int {
+	if archiveType == "gz" || archiveType == "bz2" || archiveType == "xz" {
+		return 2
+	}
+	return extractStagesForName(filepath.Base(archivePath))
+}
+
+// cacheAndExtractNestedTar caches the intermediate tar in the store and extracts
+// it into extractDir, returning the blob hash for the caller to record. The hash
+// is empty when the tar could not be cached, which is not fatal.
+func (e *Extractor) cacheAndExtractNestedTar(sevenZip, tarFile, extractDir string) (string, error) {
+	intermediateTarHash := ""
+	tarData, err := os.ReadFile(tarFile)
+	if err == nil {
+		intermediateTarHash, err = e.store.Write(bytes.NewReader(tarData))
+		if err != nil {
+			intermediateTarHash = ""
+		}
+	}
+
+	if err := e.run7zExtract(sevenZip, tarFile, extractDir, 2, 2); err != nil {
+		return "", err
+	}
+	os.Remove(tarFile)
+	return intermediateTarHash, nil
+}
+
+// newExtractTempDir creates a unique scratch directory for one extraction pass.
+func (e *Extractor) newExtractTempDir(prefix string) (string, func(), error) {
+	dir := filepath.Join(e.tempDir, fmt.Sprintf("%s-%s", prefix, uniqueTempName()))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", func() {}, fmt.Errorf("create temp dir: %w", err)
+	}
+	return dir, func() { os.RemoveAll(dir) }, nil
+}
+
+// sevenZipBinary returns the configured 7z executable, defaulting to PATH lookup.
+func (e *Extractor) sevenZipBinary() string {
+	if e.sevenZip != "" {
+		return e.sevenZip
+	}
+	return "7z.exe"
+}
+
 // ExtractMSI extracts an MSI installer
 func (e *Extractor) ExtractMSI(msiPath string) (string, map[string]string, error) {
 	if !e.use7z {
@@ -315,79 +321,85 @@ func (e *Extractor) ExtractMSI(msiPath string) (string, map[string]string, error
 	return e.extractWith7z(msiPath, "msi")
 }
 
-// extractEXE extracts a self-extracting archive or single executable
+// ExtractEXE extracts a self-extracting archive or a single executable.
 func (e *Extractor) ExtractEXE(exePath string) (string, map[string]string, error) {
 	// First, try to extract with 7z (some .exe are self-extracting archives)
-	if e.use7z {
-		// Determine which 7z executable to use
-		sevenZip := "7z.exe"
-		if e.sevenZip != "" {
-			sevenZip = e.sevenZip
-		}
+	if !e.use7z {
+		return e.storeSingleExecutable(exePath)
+	}
 
-		// Try to list contents first
-		args := []string{"l", exePath}
-		cmd := exec.CommandContext(e.execContext(), sevenZip, args...)
-		procutil.HideWindow(cmd)
-		listErr := cmd.Run()
+	sevenZip := e.sevenZipBinary()
+	if e.sevenZipCanList(exePath, sevenZip) {
+		// It's an archive, extract it
+		return e.extractWith7z(exePath, "exe")
+	}
 
-		if listErr == nil {
-			// It's an archive, extract it
-			return e.extractWith7z(exePath, "exe")
-		}
+	// 7z list failed, but some SFX files cannot be listed and still extract.
+	return e.extractSFXArchive(exePath, sevenZip)
+}
 
-		// 7z list failed, try to extract directly (might still work)
-		// Some SFX files can't be listed but can be extracted
-		args = []string{"x", "-y", exePath}
-		cmd = exec.CommandContext(e.execContext(), sevenZip, args...)
-		procutil.HideWindow(cmd)
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
+// sevenZipCanList reports whether 7z recognizes archivePath as an archive.
+func (e *Extractor) sevenZipCanList(archivePath, sevenZip string) bool {
+	cmd := exec.CommandContext(e.execContext(), sevenZip, "l", archivePath)
+	procutil.HideWindow(cmd)
+	return cmd.Run() == nil
+}
 
-		// Create a unique temp directory for extraction
-		tempDir := filepath.Join(e.tempDir, fmt.Sprintf("extract-sfx-%s", uniqueTempName()))
-		if err := os.MkdirAll(tempDir, 0755); err != nil {
-			return "", nil, fmt.Errorf("create temp dir: %w", err)
-		}
-		defer os.RemoveAll(tempDir)
+// extractSFXArchive extracts a self-extracting archive through a private copy of
+// the executable: 7z may fail on the original when it is a hardlink or carries
+// alternate data streams.
+func (e *Extractor) extractSFXArchive(exePath, sevenZip string) (string, map[string]string, error) {
+	tempDir, cleanupDir, err := e.newExtractTempDir("extract-sfx")
+	if err != nil {
+		return "", nil, err
+	}
+	defer cleanupDir()
 
-		// Try extracting to temp dir
-		// First, copy the file to a temporary location (7z may have issues with hardlinks)
-		tempExePath := filepath.Join(e.tempDir, fmt.Sprintf("sfx-%s.exe", uniqueTempName()))
-		data, err := os.ReadFile(exePath)
-		if err != nil {
-			return "", nil, fmt.Errorf("read exe for extraction: %w", err)
-		}
-		if err := os.WriteFile(tempExePath, data, 0755); err != nil {
-			return "", nil, fmt.Errorf("write temp exe: %w", err)
-		}
-		defer os.Remove(tempExePath)
+	tempExePath, cleanupExe, err := e.copyExecutableToTemp(exePath)
+	if err != nil {
+		return "", nil, err
+	}
+	defer cleanupExe()
 
-		extractArgs := e.build7zExtractArgs(tempDir, tempExePath, e.extractProgress() != nil)
-		cmd = exec.CommandContext(e.execContext(), sevenZip, extractArgs...)
-		procutil.HideWindow(cmd)
-		cmd.Stdout = &stdout
-		if parser := newProgress7zParser(e.stageExtractProgress(1, 1)); parser != nil {
-			cmd.Stdout = io.MultiWriter(&stdout, parser)
-			cmd.Stderr = &stderr
-		} else {
-			cmd.Stderr = &stderr
-		}
+	var stdout, stderr bytes.Buffer
+	extractArgs := e.build7zExtractArgs(tempDir, tempExePath, e.extractProgress() != nil)
+	cmd := exec.CommandContext(e.execContext(), sevenZip, extractArgs...)
+	procutil.HideWindow(cmd)
+	cmd.Stdout = &stdout
+	if parser := newProgress7zParser(e.stageExtractProgress(1, 1)); parser != nil {
+		cmd.Stdout = io.MultiWriter(&stdout, parser)
+	}
+	cmd.Stderr = &stderr
 
-		if err := cmd.Run(); err == nil {
-			files, ingestDur, ingestErr := e.ingestExtractedDir(tempDir)
-			if ingestErr != nil {
-				return "", nil, ingestErr
-			}
-			verbose.Progressf("  Stored %d file(s) to cache in %s (%d workers)\n", len(files), humanize.FormatDuration(ingestDur), e.workers)
-			return hashBytesFromFile(exePath), files, nil
-		}
+	if err := cmd.Run(); err != nil {
 		return "", nil, fmt.Errorf("7z extract SFX failed: %w\nStderr: %s", err, stderr.String())
 	}
 
-	// Not an archive, it's a single executable
-	// Read it and write to CAS as-is
+	files, ingestDur, err := e.ingestExtractedDir(tempDir)
+	if err != nil {
+		return "", nil, err
+	}
+	verbose.Progressf("  Stored %d file(s) to cache in %s (%d workers)\n", len(files), humanize.FormatDuration(ingestDur), e.workers)
+	return hashBytesFromFile(exePath), files, nil
+}
+
+// copyExecutableToTemp copies exePath to a private .exe temp file and returns the
+// copy path with its cleanup.
+func (e *Extractor) copyExecutableToTemp(exePath string) (string, func(), error) {
+	tmpPath := filepath.Join(e.tempDir, fmt.Sprintf("sfx-%s.exe", uniqueTempName()))
+	data, err := os.ReadFile(exePath)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("read exe for extraction: %w", err)
+	}
+	if err := os.WriteFile(tmpPath, data, 0755); err != nil {
+		return "", func() {}, fmt.Errorf("write temp exe: %w", err)
+	}
+	return tmpPath, func() { os.Remove(tmpPath) }, nil
+}
+
+// storeSingleExecutable writes a non-archive executable to the CAS as-is, keyed by
+// its filename.
+func (e *Extractor) storeSingleExecutable(exePath string) (string, map[string]string, error) {
 	data, err := os.ReadFile(exePath)
 	if err != nil {
 		return "", nil, fmt.Errorf("read exe: %w", err)

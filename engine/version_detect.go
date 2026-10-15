@@ -221,80 +221,116 @@ func formatVersionParts(parts []versionPart) string {
 	return b.String()
 }
 
+// versionProbeCandidates lists executable and sidecar files to probe for a
+// runtime version: manifest-declared paths first, then the Application-layout
+// scans.
 func versionProbeCandidates(installDir string, m *manifest.Manifest) []string {
-	seen := make(map[string]bool)
-	var out []string
-	add := func(rel string) {
-		rel = strings.TrimSpace(rel)
-		if rel == "" {
-			return
-		}
-		rel = strings.Trim(rel, `"'`)
-		rel = filepath.FromSlash(rel)
-		if filepath.IsAbs(rel) {
-			return
-		}
-		abs := filepath.Clean(filepath.Join(installDir, rel))
-		if !strings.HasPrefix(strings.ToLower(abs), strings.ToLower(filepath.Clean(installDir))+string(os.PathSeparator)) &&
-			!strings.EqualFold(abs, filepath.Clean(installDir)) {
-			return
-		}
-		key := strings.ToLower(abs)
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		out = append(out, abs)
-	}
+	list := &probeCandidateList{installDir: installDir, seen: make(map[string]bool)}
+	addManifestProbeCandidates(list, m)
+	addScannedProbeCandidates(list)
+	return list.out
+}
 
-	if m != nil && m.VersionProbe != nil && m.VersionProbe.File != "" {
-		add(m.VersionProbe.File)
+// probeCandidateList collects sanitized, deduplicated probe paths under one
+// install directory.
+type probeCandidateList struct {
+	installDir string
+	seen       map[string]bool
+	out        []string
+}
+
+// add appends one candidate path, resolving rel against the install directory.
+// Absolute paths and paths that escape the install directory are ignored, as are
+// duplicates.
+func (l *probeCandidateList) add(rel string) {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		return
 	}
-	if m != nil {
-		for _, bin := range m.LaunchBinaries() {
-			add(binExePath(bin))
-		}
-		for _, bin := range m.Binaries() {
-			add(binExePath(bin))
-		}
-		for _, sc := range m.LaunchShortcuts() {
-			add(sc.Target)
-		}
-	} else {
+	rel = strings.Trim(rel, `"'`)
+	rel = filepath.FromSlash(rel)
+	if filepath.IsAbs(rel) {
+		return
+	}
+	abs := filepath.Clean(filepath.Join(l.installDir, rel))
+	if !l.withinInstallDir(abs) {
+		return
+	}
+	key := strings.ToLower(abs)
+	if l.seen[key] {
+		return
+	}
+	l.seen[key] = true
+	l.out = append(l.out, abs)
+}
+
+// withinInstallDir reports whether abs is the install directory itself or a path
+// under it (both sides cleaned, comparison case-insensitive).
+func (l *probeCandidateList) withinInstallDir(abs string) bool {
+	root := filepath.Clean(l.installDir)
+	if strings.EqualFold(abs, root) {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(abs), strings.ToLower(root)+string(os.PathSeparator))
+}
+
+// addManifestProbeCandidates adds the paths declared by the manifest (probe
+// file, launch bins, bins, shortcut targets). Without a manifest, the
+// install-root executables stand in.
+func addManifestProbeCandidates(list *probeCandidateList, m *manifest.Manifest) {
+	if m == nil {
 		// Only scan install root exes when manifest metadata is unavailable.
-		entries, err := os.ReadDir(installDir)
-		if err == nil {
-			for _, e := range entries {
-				name := e.Name()
-				if !e.IsDir() && strings.HasSuffix(strings.ToLower(name), ".exe") {
-					add(name)
-				}
-			}
-		}
+		scanDirExecutables(list, list.installDir, "")
+		return
 	}
+	if m.VersionProbe != nil && m.VersionProbe.File != "" {
+		list.add(m.VersionProbe.File)
+	}
+	for _, bin := range m.LaunchBinaries() {
+		list.add(binExePath(bin))
+	}
+	for _, bin := range m.Binaries() {
+		list.add(binExePath(bin))
+	}
+	for _, sc := range m.LaunchShortcuts() {
+		list.add(sc.Target)
+	}
+}
 
-	appDir := filepath.Join(installDir, "Application")
-	if entries, err := os.ReadDir(appDir); err == nil {
-		for _, e := range entries {
-			name := e.Name()
-			lower := strings.ToLower(name)
-			if !e.IsDir() && strings.HasSuffix(lower, ".exe") {
-				add(filepath.Join("Application", name))
+// addScannedProbeCandidates adds executables from the Chromium-style Application
+// layout, including its nested version directories.
+func addScannedProbeCandidates(list *probeCandidateList) {
+	appDir := filepath.Join(list.installDir, "Application")
+	entries, err := os.ReadDir(appDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() {
+			if strings.HasSuffix(strings.ToLower(name), ".exe") {
+				list.add(filepath.Join("Application", name))
 			}
-			if e.IsDir() && looksLikeVersionDir(name) {
-				nested := filepath.Join(appDir, name)
-				if nestEntries, err := os.ReadDir(nested); err == nil {
-					for _, ne := range nestEntries {
-						n := ne.Name()
-						if !ne.IsDir() && strings.HasSuffix(strings.ToLower(n), ".exe") {
-							add(filepath.Join("Application", name, n))
-						}
-					}
-				}
-			}
+			continue
+		}
+		if looksLikeVersionDir(name) {
+			scanDirExecutables(list, filepath.Join(appDir, name), filepath.Join("Application", name))
 		}
 	}
-	return out
+}
+
+// scanDirExecutables adds the .exe files directly inside dir, addressed relative
+// to the install root through relPrefix ("" for the install root itself).
+func scanDirExecutables(list *probeCandidateList, dir, relPrefix string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".exe") {
+			list.add(filepath.Join(relPrefix, e.Name()))
+		}
+	}
 }
 
 func binExePath(entry string) string {

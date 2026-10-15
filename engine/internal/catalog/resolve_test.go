@@ -208,6 +208,42 @@ func TestBucketDirHasManifestsSkipsGitTree(t *testing.T) {
 	}
 }
 
+// TestReloadAndSyncIndexIndexesRegisteredBuckets covers the tail of the clone
+// path: after the registry is reloaded the search index must be resynced, so a
+// bucket that is on disk but not yet indexed becomes searchable.
+func TestReloadAndSyncIndexIndexesRegisteredBuckets(t *testing.T) {
+	root := t.TempDir()
+	mainDir := filepath.Join(root, "buckets", "main", "bucket")
+	writeManifestWithGit(t, mainDir, "git")
+
+	br, err := bucket.NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := br.ReloadFromDisk(); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &runtime.Services{
+		Config:         &etypes.EngineConfig{RootDir: root},
+		BucketRegistry: br,
+		SearchIdx:      runtime.NewIndex(),
+	}
+	if e.SearchIdx.HasLoadedBucket("main") {
+		t.Fatal("precondition: main bucket should not be indexed yet")
+	}
+
+	if err := reloadAndSyncIndex(e); err != nil {
+		t.Fatalf("reloadAndSyncIndex: %v", err)
+	}
+	if !e.SearchIdx.HasLoadedBucket("main") {
+		t.Fatal("expected the search index to be synced after reload")
+	}
+	if entries := e.SearchIdx.FindExactName("git"); len(entries) == 0 {
+		t.Fatal("expected git to be searchable after the index sync")
+	}
+}
+
 func TestEnsureBucketForInstallSkipsReloadWhenIndexed(t *testing.T) {
 	root := t.TempDir()
 	mainDir := filepath.Join(root, "buckets", "main", "bucket")

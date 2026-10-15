@@ -50,43 +50,66 @@ func (e *Engine) ListInstalledAllVersions(filter []string) ([]InstalledPackageVe
 	}
 	root := e.Config.RootDir
 
-	var pkgNames []string
-	if len(filter) > 0 {
-		pkgNames = append([]string(nil), filter...)
-	} else {
-		appsDir := filepath.Join(root, "apps")
-		entries, err := os.ReadDir(appsDir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("read apps dir: %w", err)
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				pkgNames = append(pkgNames, entry.Name())
-			}
-		}
+	pkgNames, err := installedPackageNames(root, filter)
+	if err != nil {
+		return nil, err
 	}
 	sort.Strings(pkgNames)
 
 	out := make([]InstalledPackageVersions, 0, len(pkgNames))
 	for _, name := range pkgNames {
-		pkgRoot := apps.PkgRoot(root, name)
-		versions, err := apps.ListVersions(pkgRoot)
+		pkg, found, err := installedPackageVersions(root, name)
 		if err != nil {
-			return nil, fmt.Errorf("list versions for %s: %w", name, err)
+			return nil, err
 		}
-		if len(versions) == 0 {
+		if !found {
 			continue
 		}
-		sort.Strings(versions)
-		current, _ := apps.ReadCurrent(pkgRoot)
-		out = append(out, InstalledPackageVersions{
-			Name:     name,
-			Versions: versions,
-			Current:  current,
-		})
+		out = append(out, pkg)
 	}
 	return out, nil
+}
+
+// installedPackageNames resolves the packages to inspect: filter as-is when it is
+// non-empty, otherwise every directory under apps/. A missing apps/ dir yields no names.
+func installedPackageNames(root string, filter []string) ([]string, error) {
+	if len(filter) > 0 {
+		return append([]string(nil), filter...), nil
+	}
+
+	entries, err := os.ReadDir(filepath.Join(root, "apps"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read apps dir: %w", err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
+}
+
+// installedPackageVersions collects the on-disk versions of one package.
+// found is false when the package has no installed version, so it is skipped.
+func installedPackageVersions(root, name string) (pkg InstalledPackageVersions, found bool, err error) {
+	pkgRoot := apps.PkgRoot(root, name)
+	versions, err := apps.ListVersions(pkgRoot)
+	if err != nil {
+		return InstalledPackageVersions{}, false, fmt.Errorf("list versions for %s: %w", name, err)
+	}
+	if len(versions) == 0 {
+		return InstalledPackageVersions{}, false, nil
+	}
+	sort.Strings(versions)
+	current, _ := apps.ReadCurrent(pkgRoot)
+	return InstalledPackageVersions{
+		Name:     name,
+		Versions: versions,
+		Current:  current,
+	}, true, nil
 }

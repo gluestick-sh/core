@@ -29,6 +29,50 @@ All notable changes to **core** are documented here. The format follows [Keep a 
 - `bootstrap` is split from a single 736-line file into `download`, `fsutil`,
   `git`, `sevenzip`, and `tools`; WiX dark and innounp now share one `zipTool`
   install path.
+- `snapshot.Diff` is split into single-purpose helpers (`indexLocalState`,
+  `planBucketAdds`, `planPackageInstalls`, `planPackageActivations`,
+  `planRemovals`, `sortPlan`) so the diff reads as one pass of plan steps
+  instead of one deeply nested function; behaviour is unchanged.
+- `manifest.binariesFromField` is split into per-shape helpers
+  (`binEntriesFromArray`, `binEntryFromElement`, `binEntryFromPair`,
+  `binEntryFromObject`, `binPattern`) so bin normalization no longer nests four
+  levels deep; behaviour is unchanged.
+- `manifest.parsePersistEntries` is split the same way
+  (`persistEntriesFromArray`, `persistEntryFromPath`, `persistEntryFromPair`) so
+  persist `[install, data]` pairs no longer nest three levels deep; behaviour is
+  unchanged.
+- `extractor.extractWith7z` and `ExtractEXE` are split into single-purpose helpers
+  (`extractStages`, `cacheAndExtractNestedTar`, `newExtractTempDir`,
+  `sevenZipBinary`, `sevenZipCanList`, `extractSFXArchive`,
+  `copyExecutableToTemp`, `storeSingleExecutable`). The nested tar scan now reuses
+  `findNestedTar` and `ExtractEXE` no longer builds a command it immediately
+  discards; behaviour is unchanged apart from the SFX error fix below.
+- `shim.cacheShimStub` stages the runner beside its destination and renames it into
+  place (retrying once when Windows keeps the old file locked), so an interrupted
+  copy can no longer leave a truncated `shim.exe` in the glue root. The candidate
+  scan is extracted into `firstExistingPath` and `executableDir`.
+- `message.FormatEN` no longer formats through a ~100-case switch. The English
+  fallbacks are data tables (`enMessages`, `enMessageVariants`) rendered from
+  `{name}`/`{#name}` placeholders, and the old default branch (which returned the
+  key either way) collapses to a single return. Output was verified byte-identical
+  against the previous switch for every key and arg shape.
+- `install.finalizePackageInstall` is split into per-phase `finalizeState` methods
+  (persist restore, pre_install, installer script, flatten/validate, post_install,
+  link/record, shims/shortcuts, cache index), so the finalize pipeline reads as the
+  numbered phase list in its doc comment; call order is unchanged.
+- `install.resolveInstallPhase` is split into `installState` methods matching its
+  numbered steps (`loadManifest`, `resolvePinnedVersion`, `checkExistingInstall`
+  with the version-lock guard and the reuse/activate paths, `describePlan`,
+  `applyManifestOverrides`); the done paths still return before the plan display,
+  as before.
+- `uninstall.PackageFull` is split into an `uninstallJob` with phase methods
+  (`cleanupLeftoverInstall`, `resolveUninstallVersion`, `runUninstallHooksAndSavePersist`,
+  `removeCurrentAndVersionDir` with the failed-removal recovery, `finishAfterRemoval`
+  with the last-version cleanup); step order and error wording are unchanged.
+- `install.createPackageShims` is split into a `shimCreator` (conflict skip and
+  first-error recording) plus per-source helpers (`createManifestBinShims` with
+  `binRelPath`, `createEnvAddPathShims` with the directory scan); the discarded
+  `exePath` assignment is gone and the "_" mirror fallback is unchanged.
 
 ### Removed
 
@@ -43,6 +87,9 @@ All notable changes to **core** are documented here. The format follows [Keep a 
 - Stripped UTF-8 BOMs from nine `engine/internal/install` sources and the trailing
   blank lines in `install_hooks_post.go`. Go tolerated them, but they shifted line
   numbers and fought `gofmt`.
+- SFX extraction failures now report the real 7z error. `ExtractEXE` formatted the
+  failure with a leftover `nil` variable (`7z extract SFX failed: %!w(<nil>)`),
+  which hid the child process exit error and its stderr context.
 
 ## [0.1.0] - 2026-07-02
 
